@@ -1,9 +1,13 @@
 // Voxly background service worker (MV3).
 // Owns all network calls so the content script never touches auth or the API directly.
 
-const API_BASE = 'https://voxly.app' // override in production
-const SUPABASE_URL = 'https://your-project-ref.supabase.co'
-const SUPABASE_ANON_KEY = 'your-anon-key'
+// Deployment settings live in config.js (plain global, no modules — MV3
+// service workers load it via importScripts below).
+importScripts('config.js');
+
+const API_BASE = VOXLY_CONFIG.apiBase.replace(/\/+$/, '');
+const SUPABASE_URL = VOXLY_CONFIG.supabaseUrl.replace(/\/+$/, '');
+const SUPABASE_ANON_KEY = VOXLY_CONFIG.supabaseAnonKey;
 
 // The context menu must be created here — content scripts have no access to
 // chrome.contextMenus, so creating it from content.js silently does nothing.
@@ -50,6 +54,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .then(() => sendResponse({ ok: true }))
         .catch((err) => sendResponse({ ok: false, error: err.message }))
       return true
+
+    case 'GET_CONFIG':
+      // Lets popup.js (which cannot importScripts) read deployment settings
+      // from the single source of truth in config.js.
+      sendResponse({ ok: true, data: { dashboardUrl: `${API_BASE}/dashboard` } })
+      return false
 
     default:
       return false
@@ -146,7 +156,7 @@ async function handleRewrite({ text, tone }) {
 
   const token = await getAccessToken()
   if (!token) {
-    throw new Error('Sign in at voxly.app/dashboard to use Voxly')
+    throw new Error(`Sign in at ${API_BASE}/dashboard to use Voxly`)
   }
 
   const res = await fetch(`${API_BASE}/api/rewrite`, {

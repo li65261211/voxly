@@ -10,7 +10,7 @@ async function init() {
   const openDash = document.getElementById('open-dashboard')
 
   openDash.addEventListener('click', () => {
-    chrome.tabs.create({ url: 'https://voxly.app/dashboard' })
+    openDashboard()
   })
 
   let response
@@ -28,7 +28,7 @@ async function init() {
     status.textContent = 'Not signed in'
     signIn.hidden = false
     signIn.addEventListener('click', () => {
-      chrome.tabs.create({ url: 'https://voxly.app/dashboard' })
+      openDashboard()
     })
   }
 
@@ -40,6 +40,22 @@ async function init() {
     /* ignore */
   }
   usage.textContent = `${Math.max(0, DAILY_FREE_LIMIT - count)}/${DAILY_FREE_LIMIT} free rewrites left today`
+}
+
+/** Open the dashboard URL from the single config source (via background). */
+async function openDashboard() {
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'GET_CONFIG' })
+    const url = response?.data?.dashboardUrl
+    if (url) {
+      chrome.tabs.create({ url })
+      return
+    }
+  } catch {
+    /* fall through */
+  }
+  document.getElementById('status').textContent =
+    'Background service worker unavailable — reload the extension.'
 }
 
 init()

@@ -71,10 +71,13 @@ npm start          # serve the production build
 
 **Load the extension:**
 
-1. Open `chrome://extensions/`
-2. Turn on Developer mode
-3. Load unpacked → select `chrome-extension/`
-4. Select text on any page → right-click → **Rewrite with Voxly**
+1. Edit `chrome-extension/config.js` — set `apiBase` to your deployed web app
+   URL, plus your Supabase URL and anon key. (It must match `host_permissions`
+   in `manifest.json`, otherwise the extension can't read the login cookie.)
+2. Open `chrome://extensions/`
+3. Turn on Developer mode
+4. Load unpacked → select `chrome-extension/`
+5. Select text on any page → right-click → **Rewrite with Voxly**
 
 No build step is needed for the extension; `chrome-extension/` is loaded as-is.
 
