@@ -1,6 +1,9 @@
 -- Voxly Database Schema
 -- Run this in Supabase SQL Editor
 
+-- Required by style_profiles.style_embedding vector(1536)
+create extension if not exists vector;
+
 -- Profiles (extends auth.users)
 create table public.profiles (
   id uuid references auth.users on delete cascade primary key,
@@ -45,8 +48,20 @@ alter table public.style_profiles enable row level security;
 create policy "Users can read own profile"
   on public.profiles for select using (auth.uid() = id);
 
+-- NOTE: row-level policy only decides WHICH rows are updatable.
+-- Column-level grants below decide WHICH columns: client keys may only write
+-- display_name / email / updated_at. credits, is_pro and
+-- total_credits_purchased are service_role-only, otherwise any user could
+-- grant themselves Pro via the anon key.
 create policy "Users can update own profile"
-  on public.profiles for update using (auth.uid() = id);
+  on public.profiles for update
+  using (auth.uid() = id)
+  with check (auth.uid() = id);
+
+-- Column-level grants (normalize first; service_role/postgres are unaffected).
+revoke all on public.profiles from anon, authenticated;
+grant select on public.profiles to authenticated;
+grant update (display_name, email, updated_at) on public.profiles to authenticated;
 
 create policy "Users can read own rewrites"
   on public.rewrites for select using (auth.uid() = user_id);
@@ -76,3 +91,31 @@ $$ language plpgsql;
 create trigger profiles_updated_at
   before update on public.profiles
   for each row execute procedure public.handle_updated_at();
+
+-- Auto-create a profile row on signup. Without this, a fresh Google sign-in
+-- has no profiles row and /api/rewrite returns 404 'Profile not found'.
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id, email, display_name)
+  values (
+    new.id,
+    new.email,
+    coalesce(
+      new.raw_user_meta_data ->> 'full_name',
+      new.raw_user_meta_data ->> 'name'
+    )
+  )
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();

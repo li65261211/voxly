@@ -1,11 +1,18 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { createBrowserClient } from '@supabase/ssr'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 /**
  * Supabase client factory.
  *
- * Created lazily on purpose: `createClient` throws when the URL/key are missing,
- * and a module-level call would break `next build` (which prerenders /dashboard)
- * on any machine that has not set NEXT_PUBLIC_SUPABASE_* yet.
+ * Uses @supabase/ssr's browser client on purpose: it stores the session in a
+ * cookie (sb-<ref>-auth-token) instead of localStorage, so the Chrome
+ * extension can read the session via the `cookies` permission and call
+ * /api/rewrite on the user's behalf. With a plain createClient the session
+ * would live in localStorage and the extension could never see it.
+ *
+ * Created lazily: constructing the client throws when the URL/key are
+ * missing, and a module-level call would break `next build` (which
+ * prerenders /dashboard) on any machine without NEXT_PUBLIC_SUPABASE_* set.
  */
 let cached: SupabaseClient | null = null
 
@@ -27,7 +34,7 @@ export function getSupabase(): SupabaseClient {
     )
   }
 
-  cached = createClient(url, anonKey)
+  cached = createBrowserClient(url, anonKey)
   return cached
 }
 
