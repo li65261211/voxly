@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+next-env.d.ts
+
+# Chrome extension build
+chrome-extension/dist/
+*.zip
+
+# Environment
+.env
+.env.local
+.env*.local
+
+# Supabase
+supabase/.temp/
+supabase/.branches/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# Generated icons helper output
+chrome-extension/icons/*.png

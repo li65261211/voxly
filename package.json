@@ -1,0 +1,29 @@
+{
+  "name": "voxly",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Voxly - an AI text rewriter Chrome extension that preserves your writing voice. Solo-founder build.",
+  "scripts": {
+    "dev": "next dev --port 3000",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "icons": "node gen-icons.cjs chrome-extension/",
+    "package:ext": "powershell -Command \"Compress-Archive -Path chrome-extension -DestinationPath voxly-extension.zip -Force\""
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
+    "next": "15.2.4",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^5"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voxly — Your Voice, Not AI's Voice</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --color-bg: #08090a;
+      --color-panel: #0f1011;
+      --color-surface: #191a1b;
+      --color-hover: #28282c;
+      --color-text-primary: #f7f8f8;
+      --color-text-secondary: #d0d6e0;
+      --color-text-muted: #8a8f98;
+      --color-text-subtle: #62666d;
+      --color-accent: #5e6ad2;
+      --color-accent-hover: #828fff;
+      --color-border: rgba(255,255,255,0.08);
+      --color-border-subtle: rgba(255,255,255,0.05);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: var(--color-bg);
+      color: var(--color-text-primary);
+      font-size: 16px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+
+    /* Navigation */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(8,9,10,0.8);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--color-border-subtle);
+      padding: 16px 0;
+    }
+    nav .container { display: flex; align-items: center; justify-content: space-between; }
+    .logo {
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: -0.5px;
+      color: var(--color-text-primary);
+      text-decoration: none;
+    }
+    .logo span { color: var(--color-accent); }
+    .nav-links { display: flex; gap: 32px; align-items: center; }
+    .nav-links a {
+      color: var(--color-text-secondary);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--color-text-primary); }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      text-decoration: none;
+      transition: all 0.2s;
+      cursor: pointer;
+      border: none;
+      font-family: inherit;
+    }
+    .btn-primary {
+      background: var(--color-accent);
+      color: white;
+    }
+    .btn-primary:hover { background: var(--color-accent-hover); transform: translateY(-1px); }
+    .btn-ghost {
+      background: rgba(255,255,255,0.02);
+      color: var(--color-text-secondary);
+      border: 1px solid var(--color-border);
+    }
+    .btn-ghost:hover { background: rgba(255,255,255,0.05); color: var(--color-text-primary); }
+
+    /* Hero Section */
+    .hero {
+      padding: 120px 0 100px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -200px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 800px;
+      height: 800px;
+      background: radial-gradient(circle, rgba(94,106,210,0.15) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      background: rgba(94,106,210,0.1);
+      border: 1px solid rgba(94,106,210,0.2);
+      border-radius: 100px;
+      font-size: 13px;
+      color: var(--color-accent-hover);
+      margin-bottom: 32px;
+    }
+    .badge::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      background: var(--color-accent);
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .hero h1 {
+      font-size: clamp(48px, 8vw, 72px);
+      font-weight: 600;
+      line-height: 1.05;
+      letter-spacing: -2px;
+      margin-bottom: 24px;
+      background: linear-gradient(135deg, var(--color-text-primary) 0%, var(--color-text-secondary) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero p {
+      font-size: 20px;
+      color: var(--color-text-muted);
+      max-width: 600px;
+      margin: 0 auto 40px;
+      line-height: 1.6;
+    }
+    .hero-actions {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .hero-stats {
+      display: flex;
+      gap: 48px;
+      justify-content: center;
+      margin-top: 64px;
+      padding-top: 40px;
+      border-top: 1px solid var(--color-border-subtle);
+    }
+    .stat { text-align: center; }
+    .stat-value {
+      font-size: 32px;
+      font-weight: 600;
+      color: var(--color-text-primary);
+      letter-spacing: -1px;
+    }
+    .stat-label {
+      font-size: 13px;
+      color: var(--color-text-subtle);
+      margin-top: 4px;
+    }
+
+    /* Demo Section */
+    .demo {
+      padding: 80px 0;
+    }
+    .demo-card {
+      background: var(--color-panel);
+      border: 1px solid var(--color-border);
+      border-radius: 16px;
+      padding: 40px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    .demo-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--color-border-subtle);
+    }
+    .demo-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+    .demo-dot.red { background: #ff5f57; }
+    .demo-dot.yellow { background: #febc2e; }
+    .demo-dot.green { background: #28c840; }
+    .demo-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+    .demo-box {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 12px;
+      padding: 24px;
+    }
+    .demo-box-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--color-text-subtle);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 12px;
+    }
+    .demo-box p {
+      font-size: 15px;
+      line-height: 1.6;
+      color: var(--color-text-secondary);
+    }
+    .demo-box.highlight { border-color: var(--color-accent); }
+    .demo-box.highlight p { color: var(--color-text-primary); }
+    .tone-selector {
+      display: flex;
+      gap: 8px;
+      margin-top: 20px;
+      flex-wrap: wrap;
+    }
+    .tone-btn {
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--color-border);
+      color: var(--color-text-muted);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .tone-btn:hover, .tone-btn.active {
+      background: rgba(94,106,210,0.1);
+      border-color: var(--color-accent);
+      color: var(--color-accent-hover);
+    }
+
+    /* Features Section */
+    .features {
+      padding: 100px 0;
+    }
+    .section-header {
+      text-align: center;
+      margin-bottom: 64px;
+    }
+    .section-header h2 {
+      font-size: 40px;
+      font-weight: 600;
+      letter-spacing: -1.5px;
+      margin-bottom: 16px;
+    }
+    .section-header p {
+      font-size: 18px;
+      color: var(--color-text-muted);
+    }
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+    }
+    .feature-card {
+      background: var(--color-panel);
+      border: 1px solid var(--color-border);
+      border-radius: 12px;
+      padding: 32px;
+      transition: all 0.3s;
+    }
+    .feature-card:hover {
+      border-color: rgba(94,106,210,0.3);
+      transform: translateY(-4px);
+      box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+    }
+    .feature-icon {
+      width: 48px;
+      height: 48px;
+      background: rgba(94,106,210,0.1);
+      border: 1px solid rgba(94,106,210,0.2);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      margin-bottom: 20px;
+    }
+    .feature-card h3 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 10px;
+      letter-spacing: -0.3px;
+    }
+    .feature-card p {
+      font-size: 14px;
+      color: var(--color-text-muted);
+      line-height: 1.6;
+    }
+
+    /* Pricing Section */
+    .pricing {
+      padding: 100px 0;
+    }
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+    .pricing-card {
+      background: var(--color-panel);
+      border: 1px solid var(--color-border);
+      border-radius: 16px;
+      padding: 32px;
+      position: relative;
+    }
+    .pricing-card.featured {
+      border-color: var(--color-accent);
+      box-shadow: 0 0 60px rgba(94,106,210,0.15);
+    }
+    .pricing-badge {
+      position: absolute;
+      top: -12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--color-accent);
+      color: white;
+      padding: 4px 16px;
+      border-radius: 100px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .pricing-card h3 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .pricing-card .price {
+      font-size: 48px;
+      font-weight: 600;
+      letter-spacing: -2px;
+      margin-bottom: 4px;
+    }
+    .pricing-card .price span {
+      font-size: 16px;
+      color: var(--color-text-muted);
+      font-weight: 400;
+    }
+    .pricing-card .price-note {
+      font-size: 13px;
+      color: var(--color-text-subtle);
+      margin-bottom: 24px;
+    }
+    .pricing-features {
+      list-style: none;
+      margin-bottom: 24px;
+    }
+    .pricing-features li {
+      padding: 8px 0;
+      font-size: 14px;
+      color: var(--color-text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .pricing-features li::before {
+      content: '✓';
+      color: var(--color-accent);
+      font-weight: 600;
+    }
+    .pricing-card .btn { width: 100%; justify-content: center; }
+
+    /* How It Works */
+    .how-it-works {
+      padding: 100px 0;
+      background: var(--color-panel);
+    }
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 32px;
+      margin-top: 64px;
+    }
+    .step {
+      text-align: center;
+      padding: 32px;
+    }
+    .step-number {
+      width: 56px;
+      height: 56px;
+      background: rgba(94,106,210,0.1);
+      border: 1px solid rgba(94,106,210,0.2);
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      font-weight: 600;
+      color: var(--color-accent-hover);
+      margin: 0 auto 20px;
+    }
+    .step h3 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+    .step p {
+      font-size: 14px;
+      color: var(--color-text-muted);
+      line-height: 1.6;
+    }
+
+    /* CTA Section */
+    .cta {
+      padding: 120px 0;
+      text-align: center;
+      position: relative;
+    }
+    .cta::before {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, rgba(94,106,210,0.1) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .cta h2 {
+      font-size: 48px;
+      font-weight: 600;
+      letter-spacing: -2px;
+      margin-bottom: 20px;
+    }
+    .cta p {
+      font-size: 18px;
+      color: var(--color-text-muted);
+      margin-bottom: 40px;
+    }
+
+    /* Footer */
+    footer {
+      padding: 40px 0;
+      border-top: 1px solid var(--color-border-subtle);
+      text-align: center;
+    }
+    footer p {
+      font-size: 13px;
+      color: var(--color-text-subtle);
+    }
+    footer a {
+      color: var(--color-text-muted);
+      text-decoration: none;
+    }
+    footer a:hover { color: var(--color-accent-hover); }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .features-grid,
+      .pricing-grid,
+      .steps {
+        grid-template-columns: 1fr;
+      }
+      .demo-grid {
+        grid-template-columns: 1fr;
+      }
+      .hero-stats {
+        flex-direction: column;
+        gap: 24px;
+      }
+      .nav-links { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Navigation -->
+  <nav>
+    <div class="container">
+      <a href="#" class="logo">vox<span>ly</span></a>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#how-it-works">How it Works</a>
+        <a href="https://chromewebstore.google.com" class="btn btn-primary">Add to Chrome — Free</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="container">
+      <div class="badge">Now in Public Beta</div>
+      <h1>Your words.<br>Your voice.<br>Just better.</h1>
+      <p>Stop sounding like a robot. Voxly rewrites your text while keeping YOUR personality intact — right inside Chrome.</p>
+      <div class="hero-actions">
+        <a href="https://chromewebstore.google.com" class="btn btn-primary" style="padding: 14px 28px; font-size: 16px;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm-1 17.464V6.536L5.236 12 11 17.464z"/></svg>
+          Install for Free
+        </a>
+        <a href="#demo" class="btn btn-ghost">See it in action</a>
+      </div>
+      <div class="hero-stats">
+        <div class="stat">
+          <div class="stat-value">10K+</div>
+          <div class="stat-label">Active Users</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">4.8★</div>
+          <div class="stat-label">Chrome Store Rating</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">50M+</div>
+          <div class="stat-label">Texts Rewritten</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Demo Section -->
+  <section class="demo" id="demo">
+    <div class="container">
+      <div class="section-header">
+        <h2>See the difference</h2>
+        <p>Pick a tone and watch Voxly transform your writing in real-time</p>
+      </div>
+      <div class="demo-card">
+        <div class="demo-header">
+          <div class="demo-dot red"></div>
+          <div class="demo-dot yellow"></div>
+          <div class="demo-dot green"></div>
+          <span style="margin-left: 12px; font-size: 13px; color: var(--color-text-subtle)">Voxly Preview</span>
+        </div>
+        <div class="demo-grid">
+          <div class="demo-box">
+            <div class="demo-box-label">Original</div>
+            <p>"Hey there! I just wanted to check in and see if you got my last email about the thing we talked about yesterday. Let me know when you get this. Thanks!"</p>
+          </div>
+          <div class="demo-box highlight">
+            <div class="demo-box-label">Professional Tone</div>
+            <p>"I'm following up on my previous email regarding our discussion yesterday. Please let me know if you have any questions or need further information."</p>
+          </div>
+        </div>
+        <div class="tone-selector">
+          <button class="tone-btn active">Professional</button>
+          <button class="tone-btn">Casual</button>
+          <button class="tone-btn">Academic</button>
+          <button class="tone-btn">Persuasive</button>
+          <button class="tone-btn">Concise</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features Section -->
+  <section class="features" id="features">
+    <div class="container">
+      <div class="section-header">
+        <h2>Why Voxly?</h2>
+        <p>Built by someone tired of Grammarly's pop-ups and QuillBot's paywalls</p>
+      </div>
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon">🎭</div>
+          <h3>Your Voice, Not AI's</h3>
+          <p>Upload samples of your writing and Voxly learns your unique style. Every rewrite sounds like YOU, not a generic bot.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">⚡</div>
+          <h3>One Click, Done</h3>
+          <p>Select text, right-click, click "Rewrite". No pop-ups, no sidebars cluttering your screen. Just results.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🎯</div>
+          <h3>5 Perfect Tones</h3>
+          <p>Professional for emails, Casual for chats, Academic for papers, Persuasive for sales, Concise for summaries.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">💰</div>
+          <h3>Actually Free</h3>
+          <p>50 rewrites per day, forever free. No credit card required. No sneaky limits that appear after you've gotten hooked.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🔒</div>
+          <h3>Privacy First</h3>
+          <p>Your text never leaves your browser except to be rewritten. We don't store, sell, or train on your data.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🌐</div>
+          <h3>Works Everywhere</h3>
+          <p>Gmail, LinkedIn, Twitter, Notion, Slack — wherever you write, Voxly is one right-click away.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- How It Works -->
+  <section class="how-it-works" id="how-it-works">
+    <div class="container">
+      <div class="section-header">
+        <h2>How it works</h2>
+        <p>Three steps to better writing</p>
+      </div>
+      <div class="steps">
+        <div class="step">
+          <div class="step-number">1</div>
+          <h3>Install</h3>
+          <p>Add Voxly to Chrome in one click. No account needed to start using it immediately.</p>
+        </div>
+        <div class="step">
+          <div class="step-number">2</div>
+          <h3>Select & Rewrite</h3>
+          <p>Highlight any text on any website, right-click, and choose "Rewrite with Voxly". Pick your tone.</p>
+        </div>
+        <div class="step">
+          <div class="step-number">3</div>
+          <h3>Copy & Paste</h3>
+          <p>Get your rewritten text instantly. One-click copy and you're done. Simple as that.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pricing Section -->
+  <section class="pricing" id="pricing">
+    <div class="container">
+      <div class="section-header">
+        <h2>Simple, honest pricing</h2>
+        <p>No subscriptions. No surprises. Pay once or go free forever.</p>
+      </div>
+      <div class="pricing-grid">
+        <div class="pricing-card">
+          <h3>Free</h3>
+          <div class="price">$0<span>/forever</span></div>
+          <div class="price-note">50 rewrites per day</div>
+          <ul class="pricing-features">
+            <li>All 5 tone presets</li>
+            <li>Works on any website</li>
+            <li>One-click copy</li>
+            <li>No account required</li>
+          </ul>
+          <a href="#" class="btn btn-ghost">Get Started</a>
+        </div>
+        <div class="pricing-card featured">
+          <div class="pricing-badge">Most Popular</div>
+          <h3>Pro</h3>
+          <div class="price">$19<span>one-time</span></div>
+          <div class="price-note">Pay once, use forever</div>
+          <ul class="pricing-features">
+            <li>Unlimited rewrites</li>
+            <li>Style Learning — teach Voxly your voice</li>
+            <li>Rewrite history & favorites</li>
+            <li>Keyboard shortcuts</li>
+            <li>Priority support</li>
+          </ul>
+          <a href="#" class="btn btn-primary">Buy Pro →</a>
+        </div>
+        <div class="pricing-card">
+          <h3>Credits</h3>
+          <div class="price">$5<span>one-time</span></div>
+          <div class="price-note">100 rewrites, pay as you go</div>
+          <ul class="pricing-features">
+            <li>100 rewrites included</li>
+            <li>All 5 tone presets</li>
+            <li>Works anywhere</li>
+            <li>Never expires</li>
+          </ul>
+          <a href="#" class="btn btn-ghost">Buy Credits</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA Section -->
+  <section class="cta">
+    <div class="container">
+      <h2>Ready to write like yourself?</h2>
+      <p>Join 10,000+ professionals who stopped sounding like robots</p>
+      <a href="https://chromewebstore.google.com" class="btn btn-primary" style="padding: 16px 32px; font-size: 18px;">
+        Add to Chrome — It's Free
+      </a>
+      <p style="margin-top: 20px; font-size: 13px; color: var(--color-text-subtle)">No credit card • No install hassle • Works instantly</p>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container">
+      <p>© 2025 Voxly. Built with ❤️ by a solo founder. <a href="#">Privacy</a> · <a href="#">Terms</a> · <a href="#">Contact</a></p>
+    </div>
+  </footer>
+</body>
+</html>

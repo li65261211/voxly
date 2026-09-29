@@ -1,0 +1,7 @@
+/* Voxly content script styles
+   NOTE: content-script styles apply to the whole page — keep selectors scoped under
+   [data-voxly-root] to avoid leaking into host pages. */
+
+#voxly-float-btn {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
