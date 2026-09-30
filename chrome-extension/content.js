@@ -22,6 +22,8 @@
 
   let activeTone = 'professional'
   let currentText = ''
+  let currentRange = null // Range captured when the text was selected
+  let currentField = null // { el, start, end } when the selection is in an input/textarea
   let panel = null
   let floatBtn = null
 
@@ -30,10 +32,11 @@
   // selection bubble below is only a convenience — this is the real entry point.
   chrome.runtime.onMessage.addListener((message) => {
     if (message.type !== 'VOXLY_REWRITE') return
-    const selection = window.getSelection()?.toString().trim()
-    const text = message.payload?.text || selection
-    if (!text) return
-    currentText = text
+    const captured = readSelection()
+    currentText = message.payload?.text || captured?.text || ''
+    currentRange = captured?.range ?? null
+    currentField = captured?.field ?? null
+    if (!currentText.trim()) return
     openPanel()
   })
 
@@ -59,21 +62,57 @@
     return Math.max(0, DAILY_FREE_LIMIT - getUsage().count)
   }
 
+  // ------------------------------------------------------------- selection capture
+  // Capture both *what* was selected and *where* it lives. "Replace in page"
+  // runs long after the browser has cleared the selection (our panel takes
+  // focus), so the range/field must be remembered up front. Input and textarea
+  // selections never appear in window.getSelection(), hence the activeElement
+  // branch.
+  function readSelection() {
+    const el = document.activeElement
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+      const start = el.selectionStart
+      const end = el.selectionEnd
+      if (start !== null && end !== null && end > start) {
+        return { text: el.value.slice(start, end), range: null, field: { el, start, end } }
+      }
+    }
+
+    const selection = window.getSelection()
+    if (selection && selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0)
+      if (range.toString().trim()) {
+        return { text: range.toString(), range: range.cloneRange(), field: null }
+      }
+    }
+    return null
+  }
+
+  // Input/textarea selections have no DOM range — anchor the bubble near the field.
+  function captureRect() {
+    if (currentField) {
+      const rect = currentField.el.getBoundingClientRect()
+      return { left: rect.left, top: rect.top, width: rect.width }
+    }
+    return currentRange.getBoundingClientRect()
+  }
+
   // ------------------------------------------------------------ selection bubble
   document.addEventListener('mouseup', debounce(onSelectionChange, 200))
 
   function onSelectionChange() {
-    const selection = window.getSelection()?.toString().trim()
-    if (!selection || selection.length < 3) {
+    const captured = readSelection()
+    if (!captured || captured.text.trim().length < 3) {
       removeFloatBtn()
       return
     }
     // Don't pop the bubble while the user is interacting with our own panel.
     if (panel && panel.contains(document.activeElement)) return
 
-    const range = window.getSelection().getRangeAt(0)
-    const rect = range.getBoundingClientRect()
-    showFloatBtn(rect, selection)
+    currentText = captured.text
+    currentRange = captured.range
+    currentField = captured.field
+    showFloatBtn(captureRect(), captured.text)
   }
 
   function showFloatBtn(rect, text) {
@@ -199,8 +238,8 @@
 
     if (target.classList.contains('voxly-copy')) {
       const text = panel.querySelector('.voxly-output').textContent
-      await navigator.clipboard.writeText(text)
-      flash(target, 'Copied')
+      if (await copyText(text)) flash(target, 'Copied')
+      else showError('Copy failed — select the text and copy it manually.')
       return
     }
 
@@ -257,16 +296,65 @@
   }
 
   function replaceSelection(replacement) {
-    const selection = window.getSelection()
-    if (!selection || selection.rangeCount === 0) return
-    selection.deleteFromDocument()
-    selection.getRangeAt(0).insertNode(document.createTextNode(replacement))
-    selection.collapseToEnd()
+    // The live selection is usually long gone by now — the panel took focus —
+    // so work from the range/field captured when the text was selected.
+    if (currentField && currentField.el.isConnected) {
+      const { el, start, end } = currentField
+      el.focus()
+      el.value = el.value.slice(0, start) + replacement + el.value.slice(end)
+      const caret = start + replacement.length
+      el.setSelectionRange(caret, caret)
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+      closePanel()
+      return
+    }
+
+    if (currentRange && rangeIsAttached(currentRange)) {
+      currentRange.deleteContents()
+      currentRange.insertNode(document.createTextNode(replacement))
+      closePanel()
+      return
+    }
+
+    showError('The original selection is gone — copy the result instead.')
+  }
+
+  function rangeIsAttached(range) {
+    // A range whose endpoints were removed from the document can't be edited.
+    return range.startContainer.isConnected && range.endContainer.isConnected
+  }
+
+  function closePanel() {
+    currentRange = null
+    currentField = null
     panel?.remove()
     panel = null
   }
 
   // -------------------------------------------------------------------- helpers
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      // The Clipboard API can reject when the page lacks focus — fall back.
+      const ta = document.createElement('textarea')
+      ta.value = text
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      let ok = false
+      try {
+        ok = document.execCommand('copy')
+      } catch {
+        ok = false
+      }
+      ta.remove()
+      return ok
+    }
+  }
+
   function flash(btn, text) {
     const original = btn.textContent
     btn.textContent = text
