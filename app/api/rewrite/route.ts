@@ -212,4 +212,3 @@ function buildSystemPrompt(tone: Tone): string {
     '3. Return ONLY the rewritten text, with no preamble, explanation, or quotes',
   ].join('\n')
 }
- 
