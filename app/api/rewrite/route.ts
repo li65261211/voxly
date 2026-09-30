@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 const TONES = ['professional', 'casual', 'academic', 'persuasive', 'concise'] as const
 type Tone = (typeof TONES)[number]
 
 const MAX_CHARS = 5000
+
+// Free tier: 50 rewrites inside a rolling 24h window, counted live from the
+// rewrites table — so the limit actually resets every day without a cron job.
+// Banked credits (purchased, or the signup grant) are only spent once the
+// window is exhausted.
+const DAILY_FREE_LIMIT = 50
+const FREE_WINDOW_MS = 24 * 60 * 60 * 1000
 
 export async function POST(request: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -70,8 +78,41 @@ export async function POST(request: NextRequest) {
   const isPro = Boolean(profile.is_pro)
   const credits = Number(profile.credits ?? 0)
 
-  if (!isPro && credits <= 0) {
-    return NextResponse.json({ error: 'No credits remaining' }, { status: 402 })
+  let spentCredit = false
+
+  if (!isPro) {
+    const freeWindowFull = await isFreeWindowFull(supabase, user.id)
+    if (freeWindowFull === null) {
+      return NextResponse.json({ error: 'Usage check failed' }, { status: 500 })
+    }
+
+    if (freeWindowFull) {
+      if (credits <= 0) {
+        return NextResponse.json(
+          { error: 'Daily free limit reached. Upgrade to Pro for unlimited rewrites.' },
+          { status: 402 }
+        )
+      }
+
+      // Compare-and-swap: the update only lands if credits still equal the
+      // value we read above, so concurrent requests can never spend the same
+      // credit twice. Zero updated rows means another request got it first.
+      const { data: reserved, error: reserveError } = await supabase
+        .from('profiles')
+        .update({ credits: credits - 1 })
+        .eq('id', user.id)
+        .eq('credits', credits)
+        .select('credits')
+
+      if (reserveError) {
+        console.error('Credit reservation failed:', reserveError)
+        return NextResponse.json({ error: 'Credit reservation failed' }, { status: 500 })
+      }
+      if (!reserved || reserved.length === 0) {
+        return NextResponse.json({ error: 'No credits remaining' }, { status: 402 })
+      }
+      spentCredit = true
+    }
   }
 
   const openAiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -91,19 +132,21 @@ export async function POST(request: NextRequest) {
   })
 
   if (!openAiResponse.ok) {
+    if (spentCredit) await refundCredit(supabase, user.id, credits)
     const detail = await openAiResponse.json().catch(() => null)
     console.error('OpenAI error:', openAiResponse.status, detail)
     return NextResponse.json({ error: 'Rewrite failed upstream' }, { status: 502 })
   }
 
   const data = await openAiResponse.json()
-  const rewritten: string = data.choices?.[0]?.message?.content?.trim() || text
+  const rewritten: string | undefined = data.choices?.[0]?.message?.content?.trim()
 
-  if (!isPro) {
-    await supabase
-      .from('profiles')
-      .update({ credits: Math.max(0, credits - 1) })
-      .eq('id', user.id)
+  // An empty completion is a failure — never hand the original text back as
+  // if it had been rewritten.
+  if (!rewritten) {
+    if (spentCredit) await refundCredit(supabase, user.id, credits)
+    console.error('OpenAI returned an empty completion')
+    return NextResponse.json({ error: 'Rewrite failed upstream' }, { status: 502 })
   }
 
   await supabase.from('rewrites').insert({
@@ -115,6 +158,34 @@ export async function POST(request: NextRequest) {
   })
 
   return NextResponse.json({ result: rewritten })
+}
+
+async function isFreeWindowFull(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<boolean | null> {
+  const since = new Date(Date.now() - FREE_WINDOW_MS).toISOString()
+  const { count, error } = await supabase
+    .from('rewrites')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .gte('created_at', since)
+
+  if (error) {
+    console.error('Rewrite count failed:', error)
+    return null
+  }
+  return (count ?? 0) >= DAILY_FREE_LIMIT
+}
+
+async function refundCredit(supabase: SupabaseClient, userId: string, previousCredits: number) {
+  // CAS on the post-spend value so we only undo our own decrement.
+  const { error } = await supabase
+    .from('profiles')
+    .update({ credits: previousCredits })
+    .eq('id', userId)
+    .eq('credits', previousCredits - 1)
+  if (error) console.error('Credit refund failed:', error)
 }
 
 const TONE_INSTRUCTIONS: Record<Tone, string> = {
@@ -141,3 +212,4 @@ function buildSystemPrompt(tone: Tone): string {
     '3. Return ONLY the rewritten text, with no preamble, explanation, or quotes',
   ].join('\n')
 }
+ 
