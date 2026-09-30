@@ -11,9 +11,13 @@ const TONE_LABEL: Record<string, string> = {
   concise: 'Concise',
 }
 
+// Must match the limit enforced by app/api/rewrite/route.ts.
+const DAILY_FREE_LIMIT = 50
+
 export default function Dashboard() {
   const [email, setEmail] = useState<string | null>(null)
   const [credits, setCredits] = useState<number>(0)
+  const [dailyUsed, setDailyUsed] = useState<number>(0)
   const [isPro, setIsPro] = useState(false)
   const [rewrites, setRewrites] = useState<Rewrite[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -42,7 +46,11 @@ export default function Dashboard() {
       }
 
       setEmail(session.user.email ?? null)
-      await Promise.all([loadProfile(session.user.id), loadRewrites(session.user.id)])
+      await Promise.all([
+        loadProfile(session.user.id),
+        loadRewrites(session.user.id),
+        loadDailyUsage(session.user.id),
+      ])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load session')
     } finally {
@@ -72,6 +80,18 @@ export default function Dashboard() {
       .limit(20)
 
     setRewrites((data as Rewrite[]) ?? [])
+  }
+
+  // Matches the API's free-tier limit: rewrites inside a rolling 24h window.
+  async function loadDailyUsage(userId: string) {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    const { count } = await getSupabase()
+      .from('rewrites')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .gte('created_at', since)
+
+    setDailyUsed(count ?? 0)
   }
 
   async function signIn() {
@@ -130,7 +150,10 @@ export default function Dashboard() {
       >
         <h1 style={{ ...h1, margin: 0, fontSize: 24 }}>Voxly Dashboard</h1>
         <span style={muted}>
-          {isPro ? 'Pro member' : `${credits} credits left`} · {email}
+          {isPro
+            ? 'Pro member'
+            : `${Math.max(0, DAILY_FREE_LIMIT - dailyUsed)}/${DAILY_FREE_LIMIT} free today · ${credits} credits banked`}{' '}
+          · {email}
         </span>
       </header>
 
