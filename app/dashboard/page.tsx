@@ -498,7 +498,11 @@ export default function Dashboard() {
         <h2 style={{ ...h2, fontSize: 20 }}>Recent rewrites</h2>
         {rewrites.length === 0 ? (
           <p style={muted}>
-            Nothing here yet. Install the Chrome extension, select any text, and pick a tone to rewrite.
+            Nothing here yet.{' '}
+            <a href="/tool" style={{ color: '#a3adff' }}>
+              Use the tool
+            </a>{' '}
+            to rewrite your first text.
           </p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>

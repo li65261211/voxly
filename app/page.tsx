@@ -22,7 +22,7 @@ export default function Home() {
 
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
         <a
-          href="/dashboard"
+          href="/tool"
           style={{
             padding: '12px 24px',
             background: '#5e6ad2',
@@ -33,7 +33,7 @@ export default function Home() {
             fontWeight: 500,
           }}
         >
-          Open Dashboard
+          Try it free
         </a>
         <a
           href="/api/health"
@@ -52,7 +52,7 @@ export default function Home() {
       </div>
 
       <p style={{ fontSize: 13, color: '#62666d', margin: 0 }}>
-        Chrome extension coming soon · Built by a solo founder
+        Free · No install needed · Built by a solo founder
       </p>
     </main>
   )
