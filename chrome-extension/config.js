@@ -6,7 +6,9 @@
 var VOXLY_CONFIG = {
   // Base URL of the Voxly web app + API (must match `host_permissions` in
   // manifest.json, otherwise the extension cannot read the login cookie).
-  apiBase: 'https://voxly.app',
+  // Local development: 'http://localhost:3000'
+  // Vercel deployment: 'https://your-project-name.vercel.app'
+  apiBase: 'http://localhost:3000',
 
   // Supabase project used for login (Google OAuth) from the extension.
   // Find these in the Supabase dashboard: Project Settings -> API.

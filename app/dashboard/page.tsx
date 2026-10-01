@@ -1,9 +1,10 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { getSupabase, isSupabaseConfigured, type Rewrite } from '@/lib/supabase'
+import { getSupabase, isSupabaseConfigured, type Rewrite, type StyleDNA } from '@/lib/supabase'
 
 const TONE_LABEL: Record<string, string> = {
+  my_voice: '✨ My Voice',
   professional: 'Professional',
   casual: 'Casual',
   academic: 'Academic',
@@ -19,9 +20,24 @@ export default function Dashboard() {
   const [credits, setCredits] = useState<number>(0)
   const [dailyUsed, setDailyUsed] = useState<number>(0)
   const [isPro, setIsPro] = useState(false)
+  const [styleProfile, setStyleProfile] = useState<StyleDNA | null>(null)
   const [rewrites, setRewrites] = useState<Rewrite[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  // Style Learning state
+  const [isTraining, setIsTraining] = useState(false)
+  const [samples, setSamples] = useState<string[]>([
+    'Hey team! Quick update on the rollout: we squashed the latency bug on the edge workers this morning. Looking solid for our Friday demo, but let me know if anyone notices unexpected timeouts.',
+    'I really appreciate you digging into this. My main concern is not the upfront engineering cost, but whether our users will actually find this intuitive without three tutorial steps.',
+  ])
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [styleMsg, setStyleMsg] = useState<{ type: 'error' | 'success'; text: string } | null>(null)
+
+  // Live Playground for My Voice
+  const [testInput, setTestInput] = useState('i think this feature is kinda broken and we should fix it soon or clients will be mad')
+  const [testOutput, setTestOutput] = useState<string | null>(null)
+  const [isTesting, setIsTesting] = useState(false)
 
   const configured = isSupabaseConfigured()
 
@@ -61,13 +77,14 @@ export default function Dashboard() {
   async function loadProfile(userId: string) {
     const { data } = await getSupabase()
       .from('profiles')
-      .select('credits, is_pro')
+      .select('credits, is_pro, style_profile')
       .eq('id', userId)
       .single()
 
     if (data) {
       setCredits(Number(data.credits ?? 0))
       setIsPro(Boolean(data.is_pro))
+      setStyleProfile((data.style_profile as StyleDNA) ?? null)
     }
   }
 
@@ -99,6 +116,105 @@ export default function Dashboard() {
       await getSupabase().auth.signInWithOAuth({ provider: 'google' })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign-in failed')
+    }
+  }
+
+  async function handleAnalyzeStyle() {
+    setStyleMsg(null)
+    const validSamples = samples.filter((s) => s.trim().length > 0)
+    const totalChars = validSamples.reduce((acc, s) => acc + s.length, 0)
+
+    if (validSamples.length === 0 || totalChars < 50) {
+      setStyleMsg({
+        type: 'error',
+        text: 'Please provide at least 50 characters of personal writing so we can analyze your style.',
+      })
+      return
+    }
+
+    setIsAnalyzing(true)
+    try {
+      const {
+        data: { session },
+      } = await getSupabase().auth.getSession()
+
+      if (!session?.access_token) {
+        throw new Error('You must be signed in to analyze your style.')
+      }
+
+      const res = await fetch('/api/style', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ samples: validSamples }),
+      })
+
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Style analysis failed')
+
+      setStyleProfile(json.styleProfile)
+      setIsTraining(false)
+      setStyleMsg({ type: 'success', text: '🎉 Style DNA successfully extracted & saved!' })
+    } catch (err) {
+      setStyleMsg({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Failed to analyze style',
+      })
+    } finally {
+      setIsAnalyzing(false)
+    }
+  }
+
+  async function handleResetStyle() {
+    if (!confirm('Are you sure you want to reset your personal voice profile?')) return
+    try {
+      const {
+        data: { session },
+      } = await getSupabase().auth.getSession()
+
+      if (!session?.access_token) return
+
+      await fetch('/api/style', {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+
+      setStyleProfile(null)
+      setStyleMsg({ type: 'success', text: 'Voice profile reset.' })
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Reset failed')
+    }
+  }
+
+  async function handleTestRewrite() {
+    if (!testInput.trim()) return
+    setIsTesting(true)
+    setTestOutput(null)
+    try {
+      const {
+        data: { session },
+      } = await getSupabase().auth.getSession()
+
+      if (!session?.access_token) throw new Error('Not signed in')
+
+      const res = await fetch('/api/rewrite', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ text: testInput, tone: 'my_voice' }),
+      })
+
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Rewrite failed')
+      setTestOutput(data.result)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Test rewrite failed')
+    } finally {
+      setIsTesting(false)
     }
   }
 
@@ -143,25 +259,246 @@ export default function Dashboard() {
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          marginBottom: 48,
+          marginBottom: 40,
           flexWrap: 'wrap',
           gap: 12,
         }}
       >
-        <h1 style={{ ...h1, margin: 0, fontSize: 24 }}>Voxly Dashboard</h1>
-        <span style={muted}>
-          {isPro
-            ? 'Pro member'
-            : `${Math.max(0, DAILY_FREE_LIMIT - dailyUsed)}/${DAILY_FREE_LIMIT} free today · ${credits} credits banked`}{' '}
-          · {email}
-        </span>
+        <div>
+          <h1 style={{ ...h1, margin: 0, fontSize: 26, letterSpacing: '-0.5px' }}>
+            Voxly Dashboard
+          </h1>
+          <p style={{ ...muted, fontSize: 13, marginTop: 4 }}>
+            {email} ·{' '}
+            {isPro ? (
+              <span style={{ color: '#828fff', fontWeight: 600 }}>Pro Member</span>
+            ) : (
+              <span>
+                {Math.max(0, DAILY_FREE_LIMIT - dailyUsed)}/{DAILY_FREE_LIMIT} daily free left · {credits} credits banked
+              </span>
+            )}
+          </p>
+        </div>
       </header>
 
+      {/* Style Learning / My Voice Section */}
+      <section style={{ marginBottom: 44 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div>
+            <h2 style={{ ...h2, fontSize: 20, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+              ✨ Style Learning — My Voice
+            </h2>
+            <p style={{ ...muted, fontSize: 13, marginTop: 4 }}>
+              Train Voxly to write in your authentic voice instead of generic AI prose.
+            </p>
+          </div>
+          {styleProfile && !isTraining && (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                style={{ ...secondaryBtn, fontSize: 12, padding: '6px 12px' }}
+                onClick={() => setIsTraining(true)}
+              >
+                Re-train Voice
+              </button>
+              <button
+                style={{ ...secondaryBtn, fontSize: 12, padding: '6px 12px', color: '#ff7676' }}
+                onClick={handleResetStyle}
+              >
+                Reset
+              </button>
+            </div>
+          )}
+        </div>
+
+        {styleMsg && (
+          <div
+            style={{
+              padding: '10px 14px',
+              borderRadius: 8,
+              marginBottom: 16,
+              fontSize: 13,
+              background: styleMsg.type === 'error' ? 'rgba(255,107,107,0.1)' : 'rgba(94,106,210,0.15)',
+              border: `1px solid ${styleMsg.type === 'error' ? 'rgba(255,107,107,0.3)' : 'rgba(94,106,210,0.35)'}`,
+              color: styleMsg.type === 'error' ? '#ff9d9d' : '#a3adff',
+            }}
+          >
+            {styleMsg.text}
+          </div>
+        )}
+
+        {styleProfile && !isTraining ? (
+          <div style={{ ...card, borderColor: 'rgba(94,106,210,0.35)', background: 'linear-gradient(180deg, #15161c 0%, #101114 100%)' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 14 }}>
+              <span style={{ fontSize: 16, fontWeight: 600, color: '#f7f8f8' }}>
+                🏷️ Persona: <span style={{ color: '#828fff' }}>{styleProfile.voice_name}</span>
+              </span>
+              <span style={{ fontSize: 11, color: '#62666d' }}>
+                Analyzed {new Date(styleProfile.analyzed_at).toLocaleDateString()}
+              </span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, marginBottom: 20 }}>
+              <div style={dnaChip}>
+                <div style={dnaLabel}>Cadence & Flow</div>
+                <div style={dnaValue}>{styleProfile.cadence}</div>
+              </div>
+              <div style={dnaChip}>
+                <div style={dnaLabel}>Formality & Tone</div>
+                <div style={dnaValue}>{styleProfile.formality}</div>
+              </div>
+              <div style={dnaChip}>
+                <div style={dnaLabel}>Vocabulary Level</div>
+                <div style={dnaValue}>{styleProfile.vocabulary_level}</div>
+              </div>
+              <div style={dnaChip}>
+                <div style={dnaLabel}>Signature Quirks & Habits</div>
+                <div style={dnaValue}>{styleProfile.signature_habits}</div>
+              </div>
+            </div>
+
+            {styleProfile.forbidden_words?.length > 0 && (
+              <div style={{ marginBottom: 20 }}>
+                <div style={cardLabel}>Strictly Suppressed AI Cliches</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                  {styleProfile.forbidden_words.map((w) => (
+                    <span
+                      key={w}
+                      style={{
+                        fontSize: 11,
+                        background: 'rgba(255,255,255,0.04)',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        padding: '3px 8px',
+                        borderRadius: 4,
+                        color: '#ff9d9d',
+                      }}
+                    >
+                      ✕ {w}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Live My Voice Test */}
+            <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 16 }}>
+              <div style={cardLabel}>Live Test: Rewrite with My Voice</div>
+              <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+                <input
+                  type="text"
+                  value={testInput}
+                  onChange={(e) => setTestInput(e.target.value)}
+                  placeholder="Type or paste any draft sentence to test your voice..."
+                  style={textInput}
+                />
+                <button
+                  style={{ ...primaryBtn, marginTop: 0, whiteSpace: 'nowrap', padding: '8px 16px', fontSize: 13 }}
+                  disabled={isTesting}
+                  onClick={handleTestRewrite}
+                >
+                  {isTesting ? 'Rewriting…' : 'Test Rewrite'}
+                </button>
+              </div>
+
+              {testOutput && (
+                <div
+                  style={{
+                    marginTop: 12,
+                    padding: 12,
+                    borderRadius: 8,
+                    background: 'rgba(94,106,210,0.1)',
+                    border: '1px solid rgba(94,106,210,0.25)',
+                  }}
+                >
+                  <div style={{ fontSize: 11, color: '#828fff', fontWeight: 600, marginBottom: 4 }}>
+                    Rewritten in your voice:
+                  </div>
+                  <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: '#f7f8f8' }}>
+                    {testOutput}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div style={{ ...card, borderColor: 'rgba(94,106,210,0.3)' }}>
+            <h3 style={{ margin: '0 0 8px', fontSize: 15, fontWeight: 600 }}>
+              {styleProfile ? 'Update your Writing Samples' : 'Teach Voxly how you write'}
+            </h3>
+            <p style={{ ...muted, fontSize: 13, marginBottom: 18 }}>
+              Paste 2-3 short writing samples (past emails, Slack messages, LinkedIn posts, or notes). Our linguistic model will reverse-engineer your unique cadence, vocabulary, and quirks.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {samples.map((sample, idx) => (
+                <div key={idx}>
+                  <div style={{ ...cardLabel, display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Writing Sample #{idx + 1}</span>
+                    {samples.length > 1 && (
+                      <button
+                        style={{ background: 'none', border: 'none', color: '#8a8f98', cursor: 'pointer', fontSize: 11 }}
+                        onClick={() => setSamples(samples.filter((_, i) => i !== idx))}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  <textarea
+                    rows={3}
+                    style={textarea}
+                    value={sample}
+                    onChange={(e) => {
+                      const copy = [...samples]
+                      copy[idx] = e.target.value
+                      setSamples(copy)
+                    }}
+                    placeholder={
+                      idx === 0
+                        ? 'e.g., A work email or message showing your typical communication tone...'
+                        : idx === 1
+                        ? 'e.g., A social media post, reflection, or note you wrote...'
+                        : 'e.g., Another writing snippet...'
+                    }
+                  />
+                </div>
+              ))}
+
+              {samples.length < 4 && (
+                <button
+                  style={{ ...secondaryBtn, width: 'fit-content', fontSize: 12, padding: '6px 12px' }}
+                  onClick={() => setSamples([...samples, ''])}
+                >
+                  + Add another sample
+                </button>
+              )}
+
+              <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+                <button
+                  style={{ ...primaryBtn, marginTop: 0 }}
+                  disabled={isAnalyzing}
+                  onClick={handleAnalyzeStyle}
+                >
+                  {isAnalyzing ? 'Extracting Style DNA…' : '✨ Extract & Save My Voice'}
+                </button>
+                {styleProfile && (
+                  <button
+                    style={{ ...secondaryBtn, marginTop: 0 }}
+                    onClick={() => setIsTraining(false)}
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* Recent rewrites */}
       <section style={{ marginBottom: 48 }}>
         <h2 style={{ ...h2, fontSize: 20 }}>Recent rewrites</h2>
         {rewrites.length === 0 ? (
           <p style={muted}>
-            Nothing here yet. Install the Chrome extension and rewrite some text.
+            Nothing here yet. Install the Chrome extension, select any text, and pick a tone to rewrite.
           </p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -261,21 +598,54 @@ const code: React.CSSProperties = {
   borderRadius: 4,
 }
 const primaryBtn: React.CSSProperties = {
-  marginTop: 24,
-  padding: '12px 24px',
+  padding: '10px 20px',
   background: '#5e6ad2',
   color: '#fff',
   border: 'none',
   borderRadius: 8,
-  fontSize: 15,
+  fontSize: 14,
   fontWeight: 500,
   cursor: 'pointer',
+  transition: 'background 0.15s ease',
+}
+const secondaryBtn: React.CSSProperties = {
+  padding: '10px 18px',
+  background: 'rgba(255,255,255,0.05)',
+  color: '#d0d6e0',
+  border: '1px solid rgba(255,255,255,0.1)',
+  borderRadius: 8,
+  fontSize: 13,
+  cursor: 'pointer',
+}
+const textInput: React.CSSProperties = {
+  flex: 1,
+  padding: '9px 12px',
+  background: 'rgba(255,255,255,0.03)',
+  border: '1px solid rgba(255,255,255,0.1)',
+  borderRadius: 8,
+  color: '#f7f8f8',
+  fontSize: 13,
+  outline: 'none',
+}
+const textarea: React.CSSProperties = {
+  width: '100%',
+  padding: '10px 12px',
+  background: 'rgba(255,255,255,0.03)',
+  border: '1px solid rgba(255,255,255,0.08)',
+  borderRadius: 8,
+  color: '#f7f8f8',
+  fontSize: 13,
+  lineHeight: 1.5,
+  fontFamily: 'inherit',
+  boxSizing: 'border-box',
+  resize: 'vertical',
+  outline: 'none',
 }
 const card: React.CSSProperties = {
-  padding: 20,
-  background: '#191a1b',
+  padding: 22,
+  background: '#141517',
   border: '1px solid rgba(255,255,255,0.08)',
-  borderRadius: 12,
+  borderRadius: 14,
 }
 const cardMeta: React.CSSProperties = {
   fontSize: 12,
@@ -286,9 +656,28 @@ const cardMeta: React.CSSProperties = {
 }
 const cardLabel: React.CSSProperties = {
   fontSize: 11,
-  color: '#62666d',
+  color: '#8a8f98',
   marginBottom: 6,
   textTransform: 'uppercase',
   letterSpacing: 0.5,
+}
+const dnaChip: React.CSSProperties = {
+  padding: '12px 14px',
+  background: 'rgba(255,255,255,0.02)',
+  border: '1px solid rgba(255,255,255,0.06)',
+  borderRadius: 10,
+}
+const dnaLabel: React.CSSProperties = {
+  fontSize: 11,
+  color: '#828fff',
+  fontWeight: 600,
+  marginBottom: 4,
+  textTransform: 'uppercase',
+  letterSpacing: 0.5,
+}
+const dnaValue: React.CSSProperties = {
+  fontSize: 12,
+  color: '#d0d6e0',
+  lineHeight: 1.5,
 }
 const errorText: React.CSSProperties = { color: '#ff6b6b', fontSize: 13, marginTop: 16 }

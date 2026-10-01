@@ -39,6 +39,7 @@ export function getSupabase(): SupabaseClient {
 }
 
 export const TONES = [
+  'my_voice',
   'professional',
   'casual',
   'academic',
@@ -48,6 +49,17 @@ export const TONES = [
 
 export type Tone = (typeof TONES)[number]
 
+export interface StyleDNA {
+  voice_name: string
+  cadence: string
+  formality: string
+  vocabulary_level: string
+  signature_habits: string
+  forbidden_words: string[]
+  prompt_instruction: string
+  analyzed_at: string
+}
+
 export interface Profile {
   id: string
   email?: string
@@ -55,7 +67,7 @@ export interface Profile {
   credits: number
   total_credits_purchased: number
   is_pro: boolean
-  style_profile: Record<string, unknown>
+  style_profile?: StyleDNA | null
   created_at: string
   updated_at: string
 }

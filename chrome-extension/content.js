@@ -13,6 +13,7 @@
   const FLOAT_ID = 'voxly-float-btn'
 
   const TONES = [
+    { id: 'my_voice', label: 'My Voice', icon: '✨' },
     { id: 'professional', label: 'Professional', icon: '💼' },
     { id: 'casual', label: 'Casual', icon: '😊' },
     { id: 'academic', label: 'Academic', icon: '📚' },
@@ -20,7 +21,7 @@
     { id: 'concise', label: 'Concise', icon: '✂️' },
   ]
 
-  let activeTone = 'professional'
+  let activeTone = 'my_voice'
   let currentText = ''
   let currentRange = null // Range captured when the text was selected
   let currentField = null // { el, start, end } when the selection is in an input/textarea
@@ -173,7 +174,7 @@
     const toneButtons = TONES.map(
       (t) => `
       <button class="voxly-tone" data-tone="${t.id}"
-        style="${toneStyle(t.id === activeTone)}">${t.icon} ${t.label}</button>`
+        style="${toneStyle(t.id === activeTone, t.id === 'my_voice')}">${t.icon} ${t.label}</button>`
     ).join('')
 
     return `
@@ -208,9 +209,14 @@
     `
   }
 
-  function toneStyle(active) {
-    return active
-      ? 'background:rgba(94,106,210,0.16);border-color:#5e6ad2;color:#828fff;'
+  function toneStyle(active, isMyVoice) {
+    if (active) {
+      return isMyVoice
+        ? 'background:linear-gradient(135deg, rgba(94,106,210,0.3) 0%, rgba(130,143,255,0.2) 100%);border-color:#828fff;color:#fff;font-weight:600;box-shadow:0 0 10px rgba(94,106,210,0.3);'
+        : 'background:rgba(94,106,210,0.16);border-color:#5e6ad2;color:#828fff;'
+    }
+    return isMyVoice
+      ? 'background:rgba(94,106,210,0.06);border-color:rgba(94,106,210,0.25);color:#b3bcff;'
       : 'background:rgba(255,255,255,0.03);border-color:rgba(255,255,255,0.08);color:#8a8f98;'
   }
 
@@ -226,7 +232,7 @@
     if (target.classList.contains('voxly-tone')) {
       activeTone = target.dataset.tone
       panel.querySelectorAll('.voxly-tone').forEach((btn) => {
-        btn.style.cssText = toneStyle(btn.dataset.tone === activeTone)
+        btn.style.cssText = toneStyle(btn.dataset.tone === activeTone, btn.dataset.tone === 'my_voice')
       })
       return
     }

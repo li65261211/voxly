@@ -11,7 +11,9 @@
     "clipboardWrite"
   ],
   "host_permissions": [
-    "https://voxly.app/*"
+    "https://voxly.app/*",
+    "https://*.vercel.app/*",
+    "http://localhost:3000/*"
   ],
   "action": {
     "default_popup": "popup.html",

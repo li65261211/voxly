@@ -1,8 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type { StyleDNA } from '@/lib/supabase'
 
-const TONES = ['professional', 'casual', 'academic', 'persuasive', 'concise'] as const
+export const maxDuration = 30
+
+const TONES = [
+  'my_voice',
+  'professional',
+  'casual',
+  'academic',
+  'persuasive',
+  'concise',
+] as const
 type Tone = (typeof TONES)[number]
 
 const MAX_CHARS = 5000
@@ -66,7 +76,7 @@ export async function POST(request: NextRequest) {
 
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('credits, is_pro')
+    .select('credits, is_pro, style_profile')
     .eq('id', user.id)
     .single()
 
@@ -76,6 +86,16 @@ export async function POST(request: NextRequest) {
 
   const isPro = Boolean(profile.is_pro)
   const credits = Number(profile.credits ?? 0)
+  const styleDna = (profile.style_profile as StyleDNA | null) ?? null
+
+  if (tone === 'my_voice') {
+    if (!styleDna || !styleDna.prompt_instruction) {
+      return NextResponse.json(
+        { error: 'No voice profile found. Please train your voice first in the Dashboard.' },
+        { status: 400 }
+      )
+    }
+  }
 
   let spentCredit = false
 
@@ -111,6 +131,8 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  const systemPrompt = buildSystemPrompt(tone as Tone, styleDna)
+
   // Groq uses an OpenAI-compatible API - only the base URL and model name differ.
   const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
@@ -121,10 +143,10 @@ export async function POST(request: NextRequest) {
     body: JSON.stringify({
       model: 'llama-3.3-70b-versatile',
       messages: [
-        { role: 'system', content: buildSystemPrompt(tone as Tone) },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: text },
       ],
-      temperature: 0.7,
+      temperature: tone === 'my_voice' ? 0.55 : 0.7,
     }),
   })
 
@@ -182,7 +204,7 @@ async function refundCredit(supabase: SupabaseClient, userId: string, previousCr
   if (error) console.error('Credit refund failed:', error)
 }
 
-const TONE_INSTRUCTIONS: Record<Tone, string> = {
+const TONE_INSTRUCTIONS: Record<Exclude<Tone, 'my_voice'>, string> = {
   professional:
     'You are a professional writing assistant. Rewrite the given text to sound more polished and business-appropriate while keeping the original meaning intact.',
   casual:
@@ -195,9 +217,36 @@ const TONE_INSTRUCTIONS: Record<Tone, string> = {
     'You are a brevity expert. Rewrite the text to be as clear and brief as possible without losing any key information.',
 }
 
-function buildSystemPrompt(tone: Tone): string {
+function buildSystemPrompt(tone: Tone, styleDna?: StyleDNA | null): string {
+  if (tone === 'my_voice' && styleDna) {
+    const forbidden = (styleDna.forbidden_words || []).join(', ')
+    return [
+      `You are an elite personal writing assistant for Voxly.`,
+      `Your #1 objective: Rewrite the given text so it faithfully embodies the author's authentic writing style.`,
+      ``,
+      `Author's Style DNA:`,
+      `- Voice Profile: ${styleDna.voice_name}`,
+      `- Cadence & Sentence Structure: ${styleDna.cadence}`,
+      `- Formality & Tone: ${styleDna.formality}`,
+      `- Vocabulary: ${styleDna.vocabulary_level}`,
+      `- Signature Habits & Quirks: ${styleDna.signature_habits}`,
+      `- Guiding Directive: ${styleDna.prompt_instruction}`,
+      ``,
+      `Strict Anti-AI & Rewriting Constraints:`,
+      `1. NEVER use generic AI cliches, filler, or robotic transitions. Strictly avoid: [${forbidden || 'delve, testament, pivotal, furthermore, tapestry, utilize, in conclusion, leverage'}].`,
+      `2. Do NOT over-polish into lifeless corporate PR speak. Keep the author's natural rhythm and human touch.`,
+      `3. Preserve the core meaning, intent, and facts with 100% accuracy.`,
+      `4. Output ONLY the rewritten text, with no preamble, quotes, or conversational explanations.`,
+    ].join('\n')
+  }
+
+  const instruction =
+    tone === 'my_voice'
+      ? TONE_INSTRUCTIONS.professional
+      : TONE_INSTRUCTIONS[tone] ?? TONE_INSTRUCTIONS.professional
+
   return [
-    TONE_INSTRUCTIONS[tone],
+    instruction,
     '',
     'Rules:',
     '1. NEVER change the factual meaning of the original text',
