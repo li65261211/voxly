@@ -61,6 +61,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: true, data: { dashboardUrl: `${API_BASE}/dashboard` } })
       return false
 
+    case 'GET_VOICE_STATUS':
+      getVoiceStatus()
+        .then((data) => sendResponse({ ok: true, data }))
+        .catch((err) => sendResponse({ ok: false, error: err.message }))
+      return true
+
     default:
       return false
   }
@@ -135,6 +141,23 @@ async function getSession() {
 
   const user = await res.json()
   return { signedIn: true, email: user.email ?? null }
+}
+
+/**
+ * Whether the signed-in user has a trained voice profile.
+ * Kept in the background worker so the popup never touches the access token.
+ */
+async function getVoiceStatus() {
+  const token = await getAccessToken()
+  if (!token) return { trained: false }
+
+  const res = await fetch(`${API_BASE}/api/style`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) return { trained: false }
+
+  const json = await res.json()
+  return { trained: Boolean(json.styleProfile) }
 }
 
 async function clearSession() {

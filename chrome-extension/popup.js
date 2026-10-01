@@ -24,6 +24,7 @@ async function init() {
   if (response?.ok && response.data.signedIn) {
     status.textContent = `Signed in as ${response.data.email}`
     signOut.hidden = false
+    updateVoiceBadge()
   } else {
     status.textContent = 'Not signed in'
     signIn.hidden = false
@@ -40,6 +41,21 @@ async function init() {
     /* ignore */
   }
   usage.textContent = `${Math.max(0, DAILY_FREE_LIMIT - count)}/${DAILY_FREE_LIMIT} free rewrites left today`
+}
+
+/** Show "Active" only when the user actually has a trained voice profile. */
+async function updateVoiceBadge() {
+  const label = document.querySelector('[data-voice-label]')
+  if (!label) return
+  try {
+    const res = await chrome.runtime.sendMessage({ type: 'GET_VOICE_STATUS' })
+    if (res?.ok && res.data.trained) {
+      label.textContent = 'Active'
+      label.style.color = '#828fff'
+    }
+  } catch {
+    /* keep the default "Not trained" label */
+  }
 }
 
 /** Open the dashboard URL from the single config source (via background). */

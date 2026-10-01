@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import type { StyleDNA } from '@/lib/supabase'
 
 export const maxDuration = 30
+
+// Cost guards for this LLM-backed endpoint:
+// - cap total sample size so a single request can't burn arbitrary tokens
+// - rate-limit trainings per user (tracked in style_profiles when migrated)
+const MAX_SAMPLE_CHARS = 20000
+const MAX_TRAININGS_PER_DAY = 5
+const TRAINING_WINDOW_MS = 24 * 60 * 60 * 1000
 
 export async function GET(request: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -90,6 +98,26 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: 'Writing samples are too short. Please provide at least 50 characters total.' },
       { status: 400 }
+    )
+  }
+
+  if (totalLength > MAX_SAMPLE_CHARS) {
+    return NextResponse.json(
+      {
+        error: `Writing samples are too long (${totalLength.toLocaleString()} characters, max ${MAX_SAMPLE_CHARS.toLocaleString()}). Please shorten them and try again.`,
+      },
+      { status: 400 }
+    )
+  }
+
+  // Rate-limit trainings per user: fail open when the history table isn't
+  // migrated yet (null = check unavailable), block only on a firm true.
+  if (await isTrainingRateLimited(supabase, user.id)) {
+    return NextResponse.json(
+      {
+        error: `Style training limit reached (${MAX_TRAININGS_PER_DAY} per day). Please try again tomorrow.`,
+      },
+      { status: 429 }
     )
   }
 
@@ -182,21 +210,45 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to save style profile' }, { status: 500 })
   }
 
-  // Also optionally record into style_profiles table if available
-  try {
-    await supabase.from('style_profiles').insert({
-      user_id: user.id,
-      name: styleDna.voice_name,
-      sample_texts: validSamples,
-    })
-  } catch {
-    // Ignore error if style_profiles table is not migrated yet
+  // Record training history when the style_profiles table exists (best-effort).
+  // Supabase returns errors instead of throwing, so check the error object.
+  const { error: historyError } = await supabase.from('style_profiles').insert({
+    user_id: user.id,
+    name: styleDna.voice_name,
+    sample_texts: validSamples,
+  })
+  if (historyError) {
+    if (historyError.code === '42P01') {
+      // Table not migrated yet — expected, skip quietly.
+      console.warn('style_profiles table not migrated yet — skipping training history')
+    } else {
+      console.error('Failed to record style training history:', historyError)
+    }
   }
 
   return NextResponse.json({
     success: true,
     styleProfile: styleDna,
   })
+}
+
+async function isTrainingRateLimited(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<boolean | null> {
+  const since = new Date(Date.now() - TRAINING_WINDOW_MS).toISOString()
+  const { count, error } = await supabase
+    .from('style_profiles')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .gte('created_at', since)
+
+  if (error) {
+    // Table may not be migrated yet — fail open so training still works.
+    console.warn('Style training rate-limit check skipped:', error.message)
+    return null
+  }
+  return (count ?? 0) >= MAX_TRAININGS_PER_DAY
 }
 
 export async function DELETE(request: NextRequest) {
