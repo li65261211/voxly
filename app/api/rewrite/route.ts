@@ -17,9 +17,9 @@ const FREE_WINDOW_MS = 24 * 60 * 60 * 1000
 export async function POST(request: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  const openaiKey = process.env.OPENAI_API_KEY
+  const groqKey = process.env.GROQ_API_KEY
 
-  if (!supabaseUrl || !serviceRoleKey || !openaiKey) {
+  if (!supabaseUrl || !serviceRoleKey || !groqKey) {
     return NextResponse.json({ error: 'Server not configured' }, { status: 500 })
   }
 
@@ -64,7 +64,6 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // Load the columns we actually use — the previous version read is_pro without selecting it.
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('credits, is_pro')
@@ -94,9 +93,6 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      // Compare-and-swap: the update only lands if credits still equal the
-      // value we read above, so concurrent requests can never spend the same
-      // credit twice. Zero updated rows means another request got it first.
       const { data: reserved, error: reserveError } = await supabase
         .from('profiles')
         .update({ credits: credits - 1 })
@@ -115,14 +111,15 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const openAiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+  // Groq uses an OpenAI-compatible API - only the base URL and model name differ.
+  const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${openaiKey}`,
+      Authorization: `Bearer ${groqKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: 'llama-3.3-70b-versatile',
       messages: [
         { role: 'system', content: buildSystemPrompt(tone as Tone) },
         { role: 'user', content: text },
@@ -131,21 +128,19 @@ export async function POST(request: NextRequest) {
     }),
   })
 
-  if (!openAiResponse.ok) {
+  if (!groqResponse.ok) {
     if (spentCredit) await refundCredit(supabase, user.id, credits)
-    const detail = await openAiResponse.json().catch(() => null)
-    console.error('OpenAI error:', openAiResponse.status, detail)
+    const detail = await groqResponse.json().catch(() => null)
+    console.error('Groq error:', groqResponse.status, detail)
     return NextResponse.json({ error: 'Rewrite failed upstream' }, { status: 502 })
   }
 
-  const data = await openAiResponse.json()
+  const data = await groqResponse.json()
   const rewritten: string | undefined = data.choices?.[0]?.message?.content?.trim()
 
-  // An empty completion is a failure — never hand the original text back as
-  // if it had been rewritten.
   if (!rewritten) {
     if (spentCredit) await refundCredit(supabase, user.id, credits)
-    console.error('OpenAI returned an empty completion')
+    console.error('Groq returned an empty completion')
     return NextResponse.json({ error: 'Rewrite failed upstream' }, { status: 502 })
   }
 
@@ -179,7 +174,6 @@ async function isFreeWindowFull(
 }
 
 async function refundCredit(supabase: SupabaseClient, userId: string, previousCredits: number) {
-  // CAS on the post-spend value so we only undo our own decrement.
   const { error } = await supabase
     .from('profiles')
     .update({ credits: previousCredits })
@@ -192,7 +186,7 @@ const TONE_INSTRUCTIONS: Record<Tone, string> = {
   professional:
     'You are a professional writing assistant. Rewrite the given text to sound more polished and business-appropriate while keeping the original meaning intact.',
   casual:
-    "You are a friendly chat companion. Rewrite the text to sound natural, conversational, and easy to read — like you're talking to a colleague.",
+    "You are a friendly chat companion. Rewrite the text to sound natural, conversational, and easy to read - like you're talking to a colleague.",
   academic:
     'You are an academic editor. Rewrite the text with formal language, precise vocabulary, and clear logical structure suitable for scholarly work.',
   persuasive:
@@ -202,7 +196,6 @@ const TONE_INSTRUCTIONS: Record<Tone, string> = {
 }
 
 function buildSystemPrompt(tone: Tone): string {
-  // The output rules must apply to EVERY tone, not just the fallback path.
   return [
     TONE_INSTRUCTIONS[tone],
     '',
