@@ -32,7 +32,8 @@ const FREE_WINDOW_MS = 24 * 60 * 60 * 1000
 
 // Anonymous trial: no login needed, 5 rewrites per IP per UTC day.
 // Tracked in the anon_usage table keyed by salted SHA-256 of the client IP.
-const ANON_DAILY_LIMIT = 5
+// TEMP DEBUG: set to 0 to verify the 429 path
+const ANON_DAILY_LIMIT = 0
 const ANON_SALT = 'voxly-anon-trial-v1'
 
 function getEnv() {
