@@ -124,7 +124,7 @@ async function callGroq(
   if (!groqResponse.ok) {
     const detail = await groqResponse.json().catch(() => null)
     console.error('Groq error:', groqResponse.status, detail)
-    return { error: 'Rewrite failed upstream' }
+    return { error: `Rewrite failed upstream (groq ${groqResponse.status})` }
   }
 
   const data = await groqResponse.json()
