@@ -18,6 +18,11 @@ type Tone = (typeof TONES)[number]
 
 const MAX_CHARS = 5000
 
+// Groq retires models aggressively (llama-3.3-70b-versatile died 2026-08-16),
+// so the model is env-overridable: set GROQ_MODEL in Vercel env vars to swap
+// without a code change.
+const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b'
+
 // Free tier: 50 rewrites inside a rolling 24h window, counted live from the
 // rewrites table — so the limit actually resets every day without a cron job.
 // Banked credits (purchased, or the signup grant) are only spent once the
@@ -112,7 +117,7 @@ async function callGroq(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
+      model: GROQ_MODEL,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: text },
@@ -124,7 +129,7 @@ async function callGroq(
   if (!groqResponse.ok) {
     const detail = await groqResponse.json().catch(() => null)
     console.error('Groq error:', groqResponse.status, detail)
-    return { error: `Rewrite failed upstream (groq ${groqResponse.status})` }
+    return { error: 'Rewrite failed upstream' }
   }
 
   const data = await groqResponse.json()
