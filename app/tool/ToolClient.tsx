@@ -16,12 +16,14 @@ type ToneId = (typeof TONES)[number]['id']
 
 // Must match the limits enforced by app/api/rewrite/route.ts.
 const DAILY_FREE_LIMIT = 50
+const TRIAL_LIMIT = 5
 const MAX_INPUT_CHARS = 5000
 
 export default function ToolClient() {
   const [email, setEmail] = useState<string | null>(null)
   const [isPro, setIsPro] = useState(false)
   const [dailyUsed, setDailyUsed] = useState(0)
+  const [trialLeft, setTrialLeft] = useState<number | null>(null)
   const [styleProfile, setStyleProfile] = useState<StyleDNA | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
@@ -50,6 +52,18 @@ export default function ToolClient() {
       } = await supabase.auth.getSession()
 
       if (!session?.user) {
+        // Anonymous visitor: fetch the free-trial balance (5/day per IP).
+        try {
+          const res = await fetch('/api/rewrite')
+          const data = await res.json()
+          if (res.ok && typeof data.trialLeft === 'number') {
+            setTrialLeft(data.trialLeft)
+          } else {
+            setTrialLeft(TRIAL_LIMIT)
+          }
+        } catch {
+          setTrialLeft(TRIAL_LIMIT)
+        }
         setIsLoading(false)
         return
       }
@@ -105,20 +119,30 @@ export default function ToolClient() {
       const {
         data: { session },
       } = await getSupabase().auth.getSession()
-      if (!session?.access_token) throw new Error('Not signed in')
+
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (session?.access_token) {
+        headers.Authorization = `Bearer ${session.access_token}`
+      }
 
       const res = await fetch('/api/rewrite', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
+        headers,
         body: JSON.stringify({ text, tone }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Rewrite failed')
+      if (!res.ok) {
+        if (res.status === 429 && typeof data.trialLeft === 'number') {
+          setTrialLeft(data.trialLeft)
+        }
+        throw new Error(data.error || 'Rewrite failed')
+      }
       setOutput(data.result)
-      setDailyUsed((n) => n + 1)
+      if (data.anonymous && typeof data.trialLeft === 'number') {
+        setTrialLeft(data.trialLeft)
+      } else {
+        setDailyUsed((n) => n + 1)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Rewrite failed')
     } finally {
@@ -161,9 +185,16 @@ export default function ToolClient() {
                 </a>
               </>
             ) : (
-              <span style={{ fontSize: 12, color: '#8a8f98' }}>
-                {DAILY_FREE_LIMIT} free rewrites / day
-              </span>
+              <>
+                <span style={{ fontSize: 12, color: '#8a8f98' }}>
+                  {trialLeft === null
+                    ? 'Free trial'
+                    : `${trialLeft}/${TRIAL_LIMIT} trial left`}
+                </span>
+                <button style={signInBtn} onClick={signIn}>
+                  Sign in
+                </button>
+              </>
             )}
           </div>
         </header>
@@ -183,23 +214,39 @@ export default function ToolClient() {
             <code style={code}>NEXT_PUBLIC_SUPABASE_ANON_KEY</code> in{' '}
             <code style={code}>.env.local</code>.
           </p>
-        ) : !email ? (
-          <div style={card}>
-            <h2 style={{ ...h2, fontSize: 18, margin: '0 0 8px' }}>
-              Sign in to start rewriting
-            </h2>
-            <p style={{ ...muted, fontSize: 13, marginBottom: 20 }}>
-              {DAILY_FREE_LIMIT} free rewrites every day. We only use your
-              account to keep your quota and your voice profile.
-            </p>
-            <button style={primaryBtn} onClick={signIn}>
-              Sign in with Google
-            </button>
-            {error && <p style={errorText}>{error}</p>}
-          </div>
         ) : (
           <>
-            {!styleProfile && (
+            {!email && (
+              <div style={hintBanner}>
+                🎁 You&apos;re on the free trial —{' '}
+                {trialLeft === null ? (
+                  'a few'
+                ) : trialLeft > 0 ? (
+                  <strong>{trialLeft}</strong>
+                ) : (
+                  '0'
+                )}{' '}
+                of {TRIAL_LIMIT} rewrites left today.{' '}
+                <button
+                  onClick={signIn}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
+                    cursor: 'pointer',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: '#a3adff',
+                    textDecoration: 'underline',
+                  }}
+                >
+                  Sign in with Google
+                </button>{' '}
+                for {DAILY_FREE_LIMIT} free rewrites every day + your own
+                voice profile.
+              </div>
+            )}
+            {email && !styleProfile && (
               <div style={hintBanner}>
                 ✨ Want rewrites that sound like <em>you</em>?{' '}
                 <a href="/dashboard" style={inlineLink}>
@@ -230,7 +277,8 @@ export default function ToolClient() {
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 {TONES.map((t) => {
-                  const disabled = t.id === 'my_voice' && !styleProfile
+                  const disabled =
+                    t.id === 'my_voice' && (!email || !styleProfile)
                   const active = tone === t.id
                   return (
                     <button
@@ -239,7 +287,9 @@ export default function ToolClient() {
                       onClick={() => setTone(t.id)}
                       title={
                         disabled
-                          ? 'Train your voice on the dashboard first'
+                          ? !email
+                            ? 'Sign in and train your voice first'
+                            : 'Train your voice on the dashboard first'
                           : undefined
                       }
                       style={{
@@ -314,6 +364,16 @@ const logo: React.CSSProperties = {
   letterSpacing: -0.5,
   color: '#f7f8f8',
   textDecoration: 'none',
+}
+const signInBtn: React.CSSProperties = {
+  fontSize: 12,
+  color: '#fff',
+  background: '#5e6ad2',
+  border: 'none',
+  padding: '6px 14px',
+  borderRadius: 6,
+  cursor: 'pointer',
+  fontWeight: 600,
 }
 const ghostLink: React.CSSProperties = {
   fontSize: 12,

@@ -52,7 +52,7 @@ export default function Home() {
       </div>
 
       <p style={{ fontSize: 13, color: '#62666d', margin: 0 }}>
-        Free · No install needed · Built by a solo founder
+        Free trial · No sign-up needed · No install
       </p>
     </main>
   )

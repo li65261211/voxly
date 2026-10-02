@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { createHash } from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { StyleDNA } from '@/lib/supabase'
 
@@ -24,30 +25,157 @@ const MAX_CHARS = 5000
 const DAILY_FREE_LIMIT = 50
 const FREE_WINDOW_MS = 24 * 60 * 60 * 1000
 
-export async function POST(request: NextRequest) {
+// Anonymous trial: no login needed, 5 rewrites per IP per UTC day.
+// Tracked in the anon_usage table keyed by salted SHA-256 of the client IP.
+const ANON_DAILY_LIMIT = 5
+const ANON_SALT = 'voxly-anon-trial-v1'
+
+function getEnv() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   const groqKey = process.env.GROQ_API_KEY
+  if (!supabaseUrl || !serviceRoleKey || !groqKey) return null
+  return { supabaseUrl, serviceRoleKey, groqKey }
+}
 
-  if (!supabaseUrl || !serviceRoleKey || !groqKey) {
+function getClientIp(request: NextRequest): string {
+  const xff = request.headers.get('x-forwarded-for')
+  if (xff) {
+    const first = xff.split(',')[0]?.trim()
+    if (first) return first
+  }
+  return request.headers.get('x-real-ip')?.trim() || 'unknown'
+}
+
+function hashIp(ip: string): string {
+  return createHash('sha256').update(`${ANON_SALT}:${ip}`).digest('hex')
+}
+
+function todayUtc(): string {
+  return new Date().toISOString().slice(0, 10) // YYYY-MM-DD
+}
+
+async function getAnonUsed(
+  supabase: SupabaseClient,
+  ipHash: string
+): Promise<number | null> {
+  const { data, error } = await supabase
+    .from('anon_usage')
+    .select('count')
+    .eq('ip_hash', ipHash)
+    .eq('day', todayUtc())
+    .maybeSingle()
+  if (error) {
+    console.error('Anon usage read failed:', error)
+    return null
+  }
+  return data?.count ?? 0
+}
+
+async function bumpAnonUsed(
+  supabase: SupabaseClient,
+  ipHash: string
+): Promise<number | null> {
+  const day = todayUtc()
+  const current = await getAnonUsed(supabase, ipHash)
+  if (current === null) return null
+  const next = current + 1
+  const { error } = await supabase.from('anon_usage').upsert(
+    {
+      ip_hash: ipHash,
+      day,
+      count: next,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'ip_hash,day' }
+  )
+  if (error) {
+    console.error('Anon usage write failed:', error)
+    return null
+  }
+  return next
+}
+
+async function callGroq(
+  groqKey: string,
+  text: string,
+  tone: Tone,
+  styleDna: StyleDNA | null
+): Promise<{ rewritten?: string; tokens?: number; error?: string }> {
+  const systemPrompt = buildSystemPrompt(tone, styleDna)
+
+  // Groq uses an OpenAI-compatible API - only the base URL and model name differ.
+  const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${groqKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: text },
+      ],
+      temperature: tone === 'my_voice' ? 0.55 : 0.7,
+    }),
+  })
+
+  if (!groqResponse.ok) {
+    const detail = await groqResponse.json().catch(() => null)
+    console.error('Groq error:', groqResponse.status, detail)
+    return { error: 'Rewrite failed upstream' }
+  }
+
+  const data = await groqResponse.json()
+  const rewritten: string | undefined = data.choices?.[0]?.message?.content?.trim()
+
+  if (!rewritten) {
+    console.error('Groq returned an empty completion')
+    return { error: 'Rewrite failed upstream' }
+  }
+
+  return { rewritten, tokens: data.usage?.total_tokens ?? 0 }
+}
+
+/** Quota info for the tool page. Anonymous callers get their trial balance. */
+export async function GET(request: NextRequest) {
+  const env = getEnv()
+  if (!env) {
     return NextResponse.json({ error: 'Server not configured' }, { status: 500 })
   }
 
   const authHeader = request.headers.get('authorization')
-  if (!authHeader) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (authHeader) {
+    const authed = createClient(env.supabaseUrl, env.serviceRoleKey, {
+      global: { headers: { Authorization: authHeader } },
+    })
+    const {
+      data: { user },
+    } = await authed.auth.getUser()
+    if (user) {
+      return NextResponse.json({ loggedIn: true })
+    }
   }
 
-  const supabase = createClient(supabaseUrl, serviceRoleKey, {
-    global: { headers: { Authorization: authHeader } },
+  const supabase = createClient(env.supabaseUrl, env.serviceRoleKey)
+  const used = await getAnonUsed(supabase, hashIp(getClientIp(request)))
+  if (used === null) {
+    return NextResponse.json({ error: 'Usage check failed' }, { status: 500 })
+  }
+  return NextResponse.json({
+    loggedIn: false,
+    trialLimit: ANON_DAILY_LIMIT,
+    trialLeft: Math.max(0, ANON_DAILY_LIMIT - used),
   })
+}
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+export async function POST(request: NextRequest) {
+  const env = getEnv()
+  if (!env) {
+    return NextResponse.json({ error: 'Server not configured' }, { status: 500 })
   }
+  const { supabaseUrl, serviceRoleKey, groqKey } = env
 
   let body: { text?: unknown; tone?: unknown }
   try {
@@ -72,6 +200,26 @@ export async function POST(request: NextRequest) {
       { error: `Invalid tone. Must be one of: ${TONES.join(', ')}` },
       { status: 400 }
     )
+  }
+
+  // Optional auth: a valid session unlocks the 50/day logged-in quota,
+  // otherwise the request falls through to the anonymous trial quota.
+  let user: { id: string } | null = null
+  const authHeader = request.headers.get('authorization')
+  if (authHeader) {
+    const authed = createClient(supabaseUrl, serviceRoleKey, {
+      global: { headers: { Authorization: authHeader } },
+    })
+    const {
+      data: { user: authUser },
+    } = await authed.auth.getUser()
+    user = authUser ? { id: authUser.id } : null
+  }
+
+  const supabase = createClient(supabaseUrl, serviceRoleKey)
+
+  if (!user) {
+    return handleAnonymousRewrite(supabase, groqKey, request, text, tone as Tone)
   }
 
   const { data: profile, error: profileError } = await supabase
@@ -131,39 +279,10 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const systemPrompt = buildSystemPrompt(tone as Tone, styleDna)
-
-  // Groq uses an OpenAI-compatible API - only the base URL and model name differ.
-  const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${groqKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: text },
-      ],
-      temperature: tone === 'my_voice' ? 0.55 : 0.7,
-    }),
-  })
-
-  if (!groqResponse.ok) {
+  const { rewritten, tokens, error } = await callGroq(groqKey, text, tone as Tone, styleDna)
+  if (error || !rewritten) {
     if (spentCredit) await refundCredit(supabase, user.id, credits)
-    const detail = await groqResponse.json().catch(() => null)
-    console.error('Groq error:', groqResponse.status, detail)
-    return NextResponse.json({ error: 'Rewrite failed upstream' }, { status: 502 })
-  }
-
-  const data = await groqResponse.json()
-  const rewritten: string | undefined = data.choices?.[0]?.message?.content?.trim()
-
-  if (!rewritten) {
-    if (spentCredit) await refundCredit(supabase, user.id, credits)
-    console.error('Groq returned an empty completion')
-    return NextResponse.json({ error: 'Rewrite failed upstream' }, { status: 502 })
+    return NextResponse.json({ error: error ?? 'Rewrite failed upstream' }, { status: 502 })
   }
 
   await supabase.from('rewrites').insert({
@@ -171,10 +290,51 @@ export async function POST(request: NextRequest) {
     original_text: text,
     rewritten_text: rewritten,
     tone,
-    tokens_used: data.usage?.total_tokens ?? 0,
+    tokens_used: tokens ?? 0,
   })
 
   return NextResponse.json({ result: rewritten })
+}
+
+async function handleAnonymousRewrite(
+  supabase: SupabaseClient,
+  groqKey: string,
+  request: NextRequest,
+  text: string,
+  tone: Tone
+) {
+  if (tone === 'my_voice') {
+    return NextResponse.json(
+      { error: 'My Voice needs a trained voice profile. Sign in to train yours.' },
+      { status: 400 }
+    )
+  }
+
+  const ipHash = hashIp(getClientIp(request))
+  const used = await getAnonUsed(supabase, ipHash)
+  if (used === null) {
+    return NextResponse.json({ error: 'Usage check failed' }, { status: 500 })
+  }
+  if (used >= ANON_DAILY_LIMIT) {
+    return NextResponse.json(
+      {
+        error: `You've used all ${ANON_DAILY_LIMIT} free trial rewrites for today. Sign in with Google for ${DAILY_FREE_LIMIT} free rewrites every day.`,
+        trialLeft: 0,
+        signupPrompt: true,
+      },
+      { status: 429 }
+    )
+  }
+
+  const { rewritten, error } = await callGroq(groqKey, text, tone, null)
+  if (error || !rewritten) {
+    return NextResponse.json({ error: error ?? 'Rewrite failed upstream' }, { status: 502 })
+  }
+
+  const next = await bumpAnonUsed(supabase, ipHash)
+  const trialLeft = next === null ? Math.max(0, ANON_DAILY_LIMIT - used - 1) : Math.max(0, ANON_DAILY_LIMIT - next)
+
+  return NextResponse.json({ result: rewritten, trialLeft, anonymous: true })
 }
 
 async function isFreeWindowFull(

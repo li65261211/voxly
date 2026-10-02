@@ -39,6 +39,18 @@ create table public.style_profiles (
   created_at timestamptz default now()
 );
 
+-- Anonymous trial usage (no login): 5 rewrites per IP per UTC day.
+-- Keyed by salted SHA-256 of the client IP; only the service_role key
+-- touches this table (RLS enabled, no policies for anon/authenticated).
+create table public.anon_usage (
+  ip_hash text not null,
+  day date not null,
+  count integer not null default 0,
+  updated_at timestamptz default now(),
+  primary key (ip_hash, day)
+);
+alter table public.anon_usage enable row level security;
+
 -- Enable RLS
 alter table public.profiles enable row level security;
 alter table public.rewrites enable row level security;
