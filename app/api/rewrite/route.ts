@@ -349,7 +349,7 @@ async function handleAnonymousRewrite(
   }
   const trialLeft = next === null ? Math.max(0, ANON_DAILY_LIMIT - used - 1) : Math.max(0, ANON_DAILY_LIMIT - next)
 
-  return NextResponse.json({ result: rewritten, trialLeft, anonymous: true })
+  return NextResponse.json({ result: rewritten, trialLeft, anonymous: true, debug_ip: ipHash.slice(0, 12) })
 }
 
 async function isFreeWindowFull(
