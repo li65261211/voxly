@@ -54,6 +54,15 @@ export default function Home() {
       <p style={{ fontSize: 13, color: '#62666d', margin: 0 }}>
         Free trial · No sign-up needed · No install
       </p>
+
+      <footer style={{ marginTop: 12 }}>
+        <a
+          href="/privacy"
+          style={{ fontSize: 12, color: '#62666d', textDecoration: 'none' }}
+        >
+          Privacy Policy
+        </a>
+      </footer>
     </main>
   )
 }
