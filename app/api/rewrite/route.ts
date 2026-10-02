@@ -96,7 +96,8 @@ async function bumpAnonUsed(
   )
   if (error) {
     console.error('Anon usage write failed:', error)
-    return null
+    // TEMP DEBUG: surface the write error to diagnose quota persistence
+    throw new Error(`anon_write_failed: ${error.message} [${error.code}]`)
   }
   return next
 }
@@ -336,7 +337,16 @@ async function handleAnonymousRewrite(
     return NextResponse.json({ error: error ?? 'Rewrite failed upstream' }, { status: 502 })
   }
 
-  const next = await bumpAnonUsed(supabase, ipHash)
+  let next: number | null
+  try {
+    next = await bumpAnonUsed(supabase, ipHash)
+  } catch (e) {
+    // TEMP DEBUG
+    return NextResponse.json(
+      { result: rewritten, debug_write_error: e instanceof Error ? e.message : String(e) },
+      { status: 200 }
+    )
+  }
   const trialLeft = next === null ? Math.max(0, ANON_DAILY_LIMIT - used - 1) : Math.max(0, ANON_DAILY_LIMIT - next)
 
   return NextResponse.json({ result: rewritten, trialLeft, anonymous: true })
