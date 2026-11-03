@@ -4,7 +4,7 @@ import { createHash } from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { StyleDNA } from '@/lib/supabase'
 
-export const maxDuration = 30
+export const maxDuration = 60
 
 const TONES = [
   'my_voice',
@@ -124,21 +124,30 @@ async function callGemini(
       : [GEMINI_MODEL]
 
   for (const model of models) {
-    const geminiResponse = await fetch(GEMINI_API_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${geminiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: text },
-        ],
-        temperature: tone === 'my_voice' ? 0.55 : 0.7,
-      }),
-    })
+    // Per-attempt timeout: a stalled upstream connection must not eat the
+    // whole function budget — abort and let the fallback model try.
+    let geminiResponse: Response
+    try {
+      geminiResponse = await fetch(GEMINI_API_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${geminiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: text },
+          ],
+          temperature: tone === 'my_voice' ? 0.55 : 0.7,
+        }),
+        signal: AbortSignal.timeout(12000),
+      })
+    } catch (err) {
+      console.error('Gemini request failed:', err)
+      continue
+    }
 
     if (!geminiResponse.ok) {
       const detail = await geminiResponse.json().catch(() => null)

@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { StyleDNA } from '@/lib/supabase'
 
-export const maxDuration = 30
+export const maxDuration = 60
 
 // Cost guards for this LLM-backed endpoint:
 // - cap total sample size so a single request can't burn arbitrary tokens
@@ -151,29 +151,38 @@ export async function POST(request: NextRequest) {
 
   let completionData: { choices?: { message?: { content?: string } }[] } | null = null
   for (const model of models) {
-    const geminiResponse = await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${geminiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            {
-              role: 'system',
-              content:
-                'You are a precise linguistic analysis engine. Output ONLY raw JSON matching the requested schema.',
-            },
-            { role: 'user', content: analysisPrompt },
-          ],
-          temperature: 0.3,
-          response_format: { type: 'json_object' },
-        }),
-      }
-    )
+    // Per-attempt timeout so a stalled upstream cannot eat the whole
+    // function budget before the fallback model gets a chance.
+    let geminiResponse: Response
+    try {
+      geminiResponse = await fetch(
+        'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${geminiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model,
+            messages: [
+              {
+                role: 'system',
+                content:
+                  'You are a precise linguistic analysis engine. Output ONLY raw JSON matching the requested schema.',
+              },
+              { role: 'user', content: analysisPrompt },
+            ],
+            temperature: 0.3,
+            response_format: { type: 'json_object' },
+          }),
+          signal: AbortSignal.timeout(12000),
+        }
+      )
+    } catch (err) {
+      console.error('Style analysis Gemini request failed:', err)
+      continue
+    }
 
     if (!geminiResponse.ok) {
       const detail = await geminiResponse.json().catch(() => null)
