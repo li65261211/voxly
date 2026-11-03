@@ -52,9 +52,9 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  const groqKey = process.env.GROQ_API_KEY
+  const geminiKey = process.env.GEMINI_API_KEY
 
-  if (!supabaseUrl || !serviceRoleKey || !groqKey) {
+  if (!supabaseUrl || !serviceRoleKey || !geminiKey) {
     return NextResponse.json({ error: 'Server not configured' }, { status: 500 })
   }
 
@@ -142,34 +142,53 @@ export async function POST(request: NextRequest) {
     `}`,
   ].join('\n')
 
-  const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${groqKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You are a precise linguistic analysis engine. Output ONLY raw JSON matching the requested schema.',
-        },
-        { role: 'user', content: analysisPrompt },
-      ],
-      temperature: 0.3,
-      response_format: { type: 'json_object' },
-    }),
-  })
+  // Same Gemini models as /api/rewrite (env-overridable via GEMINI_MODEL):
+  // primary Flash, falling back to Flash-Lite on 429/503 overload errors.
+  // The previous hardcoded Groq model was retired by Groq on 2026-08-16.
+  const primaryModel = process.env.GEMINI_MODEL || 'gemini-3.8-flash'
+  const fallbackModel = process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash-lite'
+  const models = fallbackModel !== primaryModel ? [primaryModel, fallbackModel] : [primaryModel]
 
-  if (!groqResponse.ok) {
-    const detail = await groqResponse.json().catch(() => null)
-    console.error('Style analysis Groq error:', groqResponse.status, detail)
-    return NextResponse.json({ error: 'Failed to analyze writing style upstream' }, { status: 502 })
+  let completionData: { choices?: { message?: { content?: string } }[] } | null = null
+  for (const model of models) {
+    const geminiResponse = await fetch(
+      'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${geminiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            {
+              role: 'system',
+              content:
+                'You are a precise linguistic analysis engine. Output ONLY raw JSON matching the requested schema.',
+            },
+            { role: 'user', content: analysisPrompt },
+          ],
+          temperature: 0.3,
+          response_format: { type: 'json_object' },
+        }),
+      }
+    )
+
+    if (!geminiResponse.ok) {
+      const detail = await geminiResponse.json().catch(() => null)
+      console.error('Style analysis Gemini error:', geminiResponse.status, detail)
+      if (geminiResponse.status !== 429 && geminiResponse.status !== 503) break
+      continue
+    }
+
+    completionData = await geminiResponse.json()
+    break
   }
 
-  const completionData = await groqResponse.json()
+  if (!completionData) {
+    return NextResponse.json({ error: 'Failed to analyze writing style upstream' }, { status: 502 })
+  }
   const rawContent: string | undefined = completionData.choices?.[0]?.message?.content?.trim()
 
   if (!rawContent) {
@@ -178,7 +197,9 @@ export async function POST(request: NextRequest) {
 
   let styleDna: StyleDNA
   try {
-    const parsed = JSON.parse(rawContent)
+    // Gemini occasionally wraps JSON in markdown fences despite json mode.
+    const cleaned = rawContent.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
+    const parsed = JSON.parse(cleaned)
     styleDna = {
       voice_name: String(parsed.voice_name || 'My Custom Voice'),
       cadence: String(parsed.cadence || 'Natural and balanced'),

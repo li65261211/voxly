@@ -4,7 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 // Keeps the Supabase project from being auto-paused due to inactivity.
 // Triggered once a day by Vercel Cron (see vercel.json). Read-only: a single
 // lightweight SELECT that touches the DB without changing anything or
-// consuming Groq quota.
+// consuming LLM quota.
 export const maxDuration = 30
 
 function getEnv() {

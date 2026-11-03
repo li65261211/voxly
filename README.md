@@ -10,7 +10,7 @@ Built as a solo-founder project targeting the North American market.
 
 ## Status
 
-Working end to end: the Next.js app builds and serves, the rewrite and style extraction APIs are wired to Groq / OpenAI, **Style Learning is fully operational**, and the Chrome extension loads unpacked. Payments (Stripe) are planned next.
+Working end to end: the Next.js app builds and serves, the rewrite and style extraction APIs are wired to Google Gemini, **Style Learning is fully operational**, and the Chrome extension loads unpacked. Payments (Stripe) are planned next.
 
 ## Stack
 
@@ -19,7 +19,7 @@ Working end to end: the Next.js app builds and serves, the rewrite and style ext
 | Web app | Next.js 15 (App Router) + React 19 + TypeScript |
 | Chrome extension | Manifest V3, vanilla JS, no build step |
 | Backend | Supabase (Postgres + Auth + Edge Functions) |
-| AI | Groq `llama-3.3-70b-versatile` / OpenAI `gpt-4o-mini` |
+| AI | Google Gemini `gemini-3.8-flash` (env-overridable via `GEMINI_MODEL`) |
 | Hosting | Vercel (Hobby / Free Tier fully supported) |
 
 ## Project layout
@@ -53,7 +53,7 @@ voxly/
 
 ## Getting started
 
-**Requirements:** Node 18+, a Supabase project, a Groq or OpenAI API key, Chrome.
+**Requirements:** Node 18+, a Supabase project, a Google Gemini API key, Chrome.
 
 ```bash
 npm install
@@ -78,7 +78,7 @@ npm start          # serve the production build
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - `SUPABASE_SERVICE_ROLE_KEY`
-   - `GROQ_API_KEY`
+   - `GEMINI_API_KEY`
 4. Deploy! Your app will be live at `https://your-app.vercel.app`.
 5. In `chrome-extension/config.js`, set `apiBase: 'https://your-app.vercel.app'`.
 

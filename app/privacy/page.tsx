@@ -28,7 +28,7 @@ const sections: { heading: string; body: string[] }[] = [
     heading: 'Third-party services',
     body: [
       'Supabase — hosts our database and authentication.',
-      'Groq — runs the AI model; the text you submit is sent to Groq\u2019s API to produce the rewrite.',
+      'Google Gemini — runs the AI model; the text you submit is sent to Google\u2019s Gemini API to produce the rewrite.',
       'Vercel — hosts the website.',
       'Google — handles Sign in with Google (OAuth). We receive only your email address and basic profile.',
     ],

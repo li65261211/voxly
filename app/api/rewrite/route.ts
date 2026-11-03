@@ -18,10 +18,17 @@ type Tone = (typeof TONES)[number]
 
 const MAX_CHARS = 5000
 
-// Groq retires models aggressively (llama-3.3-70b-versatile died 2026-08-16),
-// so the model is env-overridable: set GROQ_MODEL in Vercel env vars to swap
-// without a code change.
-const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b'
+// Providers retire models aggressively (Groq killed llama-3.3-70b-versatile
+// on 2026-08-16 and gpt-oss-120b was swapped out for Gemini on 2026-11-03),
+// so the model is env-overridable: set GEMINI_MODEL in Vercel env vars to
+// swap without a code change.
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash'
+// Free-tier Flash models occasionally return 503 during demand spikes
+// (gemini-3.8-flash did exactly that on switch day), so fall back to
+// Flash-Lite — same free tier, higher quota — before giving up.
+const GEMINI_FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash-lite'
+const GEMINI_API_URL =
+  'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'
 
 // Free tier: 50 rewrites inside a rolling 24h window, counted live from the
 // rewrites table — so the limit actually resets every day without a cron job.
@@ -38,9 +45,9 @@ const ANON_SALT = 'voxly-anon-trial-v1'
 function getEnv() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  const groqKey = process.env.GROQ_API_KEY
-  if (!supabaseUrl || !serviceRoleKey || !groqKey) return null
-  return { supabaseUrl, serviceRoleKey, groqKey }
+  const geminiKey = process.env.GEMINI_API_KEY
+  if (!supabaseUrl || !serviceRoleKey || !geminiKey) return null
+  return { supabaseUrl, serviceRoleKey, geminiKey }
 }
 
 function getClientIp(request: NextRequest): string {
@@ -101,46 +108,58 @@ async function bumpAnonUsed(
   return next
 }
 
-async function callGroq(
-  groqKey: string,
+async function callGemini(
+  geminiKey: string,
   text: string,
   tone: Tone,
   styleDna: StyleDNA | null
 ): Promise<{ rewritten?: string; tokens?: number; error?: string }> {
   const systemPrompt = buildSystemPrompt(tone, styleDna)
 
-  // Groq uses an OpenAI-compatible API - only the base URL and model name differ.
-  const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${groqKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: GROQ_MODEL,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: text },
-      ],
-      temperature: tone === 'my_voice' ? 0.55 : 0.7,
-    }),
-  })
+  // Gemini exposes an OpenAI-compatible API - only the base URL and model
+  // name differ from any other chat-completions provider.
+  const models =
+    GEMINI_FALLBACK_MODEL && GEMINI_FALLBACK_MODEL !== GEMINI_MODEL
+      ? [GEMINI_MODEL, GEMINI_FALLBACK_MODEL]
+      : [GEMINI_MODEL]
 
-  if (!groqResponse.ok) {
-    const detail = await groqResponse.json().catch(() => null)
-    console.error('Groq error:', groqResponse.status, detail)
-    return { error: 'Rewrite failed upstream' }
+  for (const model of models) {
+    const geminiResponse = await fetch(GEMINI_API_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${geminiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: text },
+        ],
+        temperature: tone === 'my_voice' ? 0.55 : 0.7,
+      }),
+    })
+
+    if (!geminiResponse.ok) {
+      const detail = await geminiResponse.json().catch(() => null)
+      console.error('Gemini error:', geminiResponse.status, detail)
+      // Only overload / rate-limit errors are worth a fallback attempt.
+      if (geminiResponse.status !== 429 && geminiResponse.status !== 503) break
+      continue
+    }
+
+    const data = await geminiResponse.json()
+    const rewritten: string | undefined = data.choices?.[0]?.message?.content?.trim()
+
+    if (!rewritten) {
+      console.error('Gemini returned an empty completion')
+      return { error: 'Rewrite failed upstream' }
+    }
+
+    return { rewritten, tokens: data.usage?.total_tokens ?? 0 }
   }
 
-  const data = await groqResponse.json()
-  const rewritten: string | undefined = data.choices?.[0]?.message?.content?.trim()
-
-  if (!rewritten) {
-    console.error('Groq returned an empty completion')
-    return { error: 'Rewrite failed upstream' }
-  }
-
-  return { rewritten, tokens: data.usage?.total_tokens ?? 0 }
+  return { error: 'Rewrite failed upstream' }
 }
 
 /** Quota info for the tool page. Anonymous callers get their trial balance. */
@@ -180,7 +199,7 @@ export async function POST(request: NextRequest) {
   if (!env) {
     return NextResponse.json({ error: 'Server not configured' }, { status: 500 })
   }
-  const { supabaseUrl, serviceRoleKey, groqKey } = env
+  const { supabaseUrl, serviceRoleKey, geminiKey } = env
 
   let body: { text?: unknown; tone?: unknown }
   try {
@@ -224,7 +243,7 @@ export async function POST(request: NextRequest) {
   const supabase = createClient(supabaseUrl, serviceRoleKey)
 
   if (!user) {
-    return handleAnonymousRewrite(supabase, groqKey, request, text, tone as Tone)
+    return handleAnonymousRewrite(supabase, geminiKey, request, text, tone as Tone)
   }
 
   const { data: profile, error: profileError } = await supabase
@@ -284,7 +303,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const { rewritten, tokens, error } = await callGroq(groqKey, text, tone as Tone, styleDna)
+  const { rewritten, tokens, error } = await callGemini(geminiKey, text, tone as Tone, styleDna)
   if (error || !rewritten) {
     if (spentCredit) await refundCredit(supabase, user.id, credits)
     return NextResponse.json({ error: error ?? 'Rewrite failed upstream' }, { status: 502 })
@@ -303,7 +322,7 @@ export async function POST(request: NextRequest) {
 
 async function handleAnonymousRewrite(
   supabase: SupabaseClient,
-  groqKey: string,
+  geminiKey: string,
   request: NextRequest,
   text: string,
   tone: Tone
@@ -331,7 +350,7 @@ async function handleAnonymousRewrite(
     )
   }
 
-  const { rewritten, error } = await callGroq(groqKey, text, tone, null)
+  const { rewritten, error } = await callGemini(geminiKey, text, tone, null)
   if (error || !rewritten) {
     return NextResponse.json({ error: error ?? 'Rewrite failed upstream' }, { status: 502 })
   }
